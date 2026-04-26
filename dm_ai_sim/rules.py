@@ -41,6 +41,10 @@ def legal_actions(state: GameState) -> list[Action]:
         for index in range(len(player.battle_zone)):
             if not can_attack(index, state):
                 continue
+            actions.extend(
+                Action(ActionType.ATTACK_CREATURE, attacker_index=index, target_index=target_index)
+                for target_index in range(len(opponent.battle_zone))
+            )
             if opponent.shields:
                 actions.append(Action(ActionType.ATTACK_SHIELD, attacker_index=index))
             else:

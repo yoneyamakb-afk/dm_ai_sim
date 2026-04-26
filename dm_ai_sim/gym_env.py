@@ -131,6 +131,16 @@ class DuelMastersGymEnv(gym.Env):
         legal_ids = self.base_env.legal_action_ids() if not state.done else []
         player = state.players[0]
         opponent = state.players[1]
+        own_powers = [creature.card.power for creature in player.battle_zone]
+        opponent_powers = [creature.card.power for creature in opponent.battle_zone]
+        own_total_power = sum(own_powers)
+        opponent_total_power = sum(opponent_powers)
+        own_blockers = [creature for creature in player.battle_zone if creature.card.blocker]
+        opponent_blockers = [creature for creature in opponent.battle_zone if creature.card.blocker]
+        own_untapped_blockers = [creature for creature in own_blockers if not creature.tapped]
+        opponent_untapped_blockers = [creature for creature in opponent_blockers if not creature.tapped]
+        own_blocker_max_power = max((creature.card.power for creature in own_blockers), default=0)
+        opponent_blocker_max_power = max((creature.card.power for creature in opponent_blockers), default=0)
 
         values = [
             1.0 if state.current_player == 0 else 0.0,
@@ -141,22 +151,22 @@ class DuelMastersGymEnv(gym.Env):
             self_obs["deck_count"] / 40.0,
             self_obs["shield_count"] / 5.0,
             len(player.mana) / 40.0,
-            sum(1 for mana in player.mana if not mana.tapped) / 40.0,
+            len(own_blockers) / 40.0,
             len(player.battle_zone) / 40.0,
-            sum(1 for creature in player.battle_zone if not creature.tapped) / 40.0,
-            len(player.graveyard) / 40.0,
+            len(own_untapped_blockers) / 40.0,
+            min((max(own_powers) if own_powers else 0) / 10000.0, 1.0),
             opponent_obs["hand_count"] / 40.0,
             opponent_obs["deck_count"] / 40.0,
             opponent_obs["shield_count"] / 5.0,
             len(opponent.mana) / 40.0,
-            len(opponent.battle_zone) / 40.0,
-            len(opponent.graveyard) / 40.0,
-            (self_obs["shield_count"] - opponent_obs["shield_count"] + 5) / 10.0,
-            (len(player.battle_zone) - len(opponent.battle_zone) + 40) / 80.0,
+            len(opponent_blockers) / 40.0,
+            min((max(opponent_powers) if opponent_powers else 0) / 10000.0, 1.0),
+            min(own_total_power / 100000.0, 1.0),
+            min(opponent_total_power / 100000.0, 1.0),
+            len(opponent_untapped_blockers) / 40.0,
             len(legal_ids) / ACTION_SPACE_SIZE,
-            1.0 if 160 in legal_ids else 0.0,
-            1.0 if 161 in legal_ids else 0.0,
-            min(self.invalid_actions / self.config.max_invalid_actions, 1.0),
+            min(own_blocker_max_power / 10000.0, 1.0),
+            min(opponent_blocker_max_power / 10000.0, 1.0),
         ]
         return np.asarray(values, dtype=np.float32)
 

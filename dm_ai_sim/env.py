@@ -58,6 +58,7 @@ class Env:
         acting_player = state.current_player
         reward = 0.0
         info: dict[str, Any] = {}
+        info["blocked"] = False
 
         if action.type == ActionType.CHARGE_MANA:
             assert action.card_index is not None
@@ -78,19 +79,32 @@ class Env:
 
         elif action.type == ActionType.ATTACK_SHIELD:
             assert action.attacker_index is not None
-            attacker = state.players[acting_player].battle_zone[action.attacker_index]
-            attacker.tapped = True
-            opponent = state.players[state.opponent]
-            if opponent.shields:
-                opponent.hand.append(opponent.shields.pop())
+            block_info = self._try_block_attack(action.attacker_index)
+            if block_info is not None:
+                info.update(block_info)
+            else:
+                attacker = state.players[acting_player].battle_zone[action.attacker_index]
+                attacker.tapped = True
+                opponent = state.players[state.opponent]
+                if opponent.shields:
+                    opponent.hand.append(opponent.shields.pop())
 
         elif action.type == ActionType.ATTACK_PLAYER:
             assert action.attacker_index is not None
-            attacker = state.players[acting_player].battle_zone[action.attacker_index]
-            attacker.tapped = True
-            state.winner = acting_player
-            state.done = True
-            state.phase = Phase.GAME_OVER
+            block_info = self._try_block_attack(action.attacker_index)
+            if block_info is not None:
+                info.update(block_info)
+            else:
+                attacker = state.players[acting_player].battle_zone[action.attacker_index]
+                attacker.tapped = True
+                state.winner = acting_player
+                state.done = True
+                state.phase = Phase.GAME_OVER
+
+        elif action.type == ActionType.ATTACK_CREATURE:
+            assert action.attacker_index is not None
+            assert action.target_index is not None
+            self._battle_creatures(action.attacker_index, action.target_index)
 
         elif action.type == ActionType.END_ATTACK:
             self._advance_turn()
@@ -112,7 +126,13 @@ class Env:
         return compute_legal_actions(self._require_state())
 
     def legal_action_ids(self) -> list[int]:
-        return [encode_action(action) for action in self.legal_actions()]
+        action_ids: list[int] = []
+        for action in self.legal_actions():
+            try:
+                action_ids.append(encode_action(action))
+            except ValueError:
+                continue
+        return action_ids
 
     def step_action_id(self, action_id: int) -> tuple[dict[str, Any], float, bool, dict[str, Any]]:
         action = decode_action(action_id)
@@ -220,6 +240,79 @@ class Env:
                     return
         raise RuntimeError("Not enough untapped mana to pay cost.")
 
+    def _battle_creatures(self, attacker_index: int, target_index: int) -> None:
+        state = self._require_state()
+        player = state.players[state.current_player]
+        opponent = state.players[state.opponent]
+        self._resolve_battle(player, attacker_index, opponent, target_index)
+
+    def _try_block_attack(self, attacker_index: int) -> dict[str, Any] | None:
+        state = self._require_state()
+        player = state.players[state.current_player]
+        opponent = state.players[state.opponent]
+        blocker_index = self._choose_blocker_index(attacker_index)
+        if blocker_index is None:
+            return None
+
+        blocker = opponent.battle_zone[blocker_index]
+        blocker_name = blocker.card.name
+        self._resolve_battle(player, attacker_index, opponent, blocker_index)
+        return {
+            "blocked": True,
+            "blocker_index": blocker_index,
+            "blocker_name": blocker_name,
+        }
+
+    def _choose_blocker_index(self, attacker_index: int) -> int | None:
+        state = self._require_state()
+        attacker = state.players[state.current_player].battle_zone[attacker_index]
+        blockers = [
+            (index, creature)
+            for index, creature in enumerate(state.players[state.opponent].battle_zone)
+            if creature.card.blocker and not creature.tapped
+        ]
+        if not blockers:
+            return None
+
+        destroy_without_dying = [
+            (index, creature)
+            for index, creature in blockers
+            if creature.card.power > attacker.card.power
+        ]
+        if destroy_without_dying:
+            return min(destroy_without_dying, key=lambda item: item[1].card.power)[0]
+
+        trade = [
+            (index, creature)
+            for index, creature in blockers
+            if creature.card.power == attacker.card.power
+        ]
+        if trade:
+            return trade[0][0]
+
+        return min(blockers, key=lambda item: item[1].card.power)[0]
+
+    def _resolve_battle(
+        self,
+        attacking_player: PlayerState,
+        attacker_index: int,
+        defending_player: PlayerState,
+        defender_index: int,
+    ) -> None:
+        attacker = attacking_player.battle_zone[attacker_index]
+        defender = defending_player.battle_zone[defender_index]
+
+        attacker.tapped = True
+        attacker_destroyed = defender.card.power >= attacker.card.power
+        defender_destroyed = attacker.card.power >= defender.card.power
+
+        if defender_destroyed:
+            destroyed_defender = defending_player.battle_zone.pop(defender_index)
+            defending_player.graveyard.append(destroyed_defender.card)
+        if attacker_destroyed:
+            destroyed_attacker = attacking_player.battle_zone.pop(attacker_index)
+            attacking_player.graveyard.append(destroyed_attacker.card)
+
     def _draw_card(self, player: PlayerState) -> bool:
         if not player.deck:
             return False
@@ -260,6 +353,7 @@ class Env:
             "cost": card.cost,
             "power": card.power,
             "civilization": card.civilization,
+            "blocker": card.blocker,
         }
 
     def _intermediate_reward(self, action: Action) -> float:

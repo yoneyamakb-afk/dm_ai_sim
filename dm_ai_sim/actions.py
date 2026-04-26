@@ -9,6 +9,7 @@ class ActionType(str, Enum):
     SUMMON = "SUMMON"
     ATTACK_SHIELD = "ATTACK_SHIELD"
     ATTACK_PLAYER = "ATTACK_PLAYER"
+    ATTACK_CREATURE = "ATTACK_CREATURE"
     END_MAIN = "END_MAIN"
     END_ATTACK = "END_ATTACK"
 
@@ -18,3 +19,4 @@ class Action:
     type: ActionType
     card_index: int | None = None
     attacker_index: int | None = None
+    target_index: int | None = None

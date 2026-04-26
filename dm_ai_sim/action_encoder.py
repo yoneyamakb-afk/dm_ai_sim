@@ -7,6 +7,8 @@ from dm_ai_sim.actions import Action, ActionType
 
 MAX_HAND_SLOTS = 40
 MAX_CREATURE_SLOTS = 40
+MAX_ATTACK_CREATURE_ATTACKERS = 10
+MAX_ATTACK_CREATURE_TARGETS = 8
 
 CHARGE_MANA_OFFSET = 0
 SUMMON_OFFSET = 40
@@ -14,9 +16,11 @@ ATTACK_SHIELD_OFFSET = 80
 ATTACK_PLAYER_OFFSET = 120
 END_MAIN_ID = 160
 END_ATTACK_ID = 161
+ATTACK_CREATURE_OFFSET = 162
+ATTACK_CREATURE_SIZE = MAX_ATTACK_CREATURE_ATTACKERS * MAX_ATTACK_CREATURE_TARGETS
 
 ACTION_SPACE_SIZE = 256
-SUPPORTED_ACTION_IDS = END_ATTACK_ID + 1
+SUPPORTED_ACTION_IDS = ATTACK_CREATURE_OFFSET + ATTACK_CREATURE_SIZE
 
 
 def encode_action(action: Action | Mapping[str, Any]) -> int:
@@ -30,6 +34,10 @@ def encode_action(action: Action | Mapping[str, Any]) -> int:
         return ATTACK_SHIELD_OFFSET + _require_range(normalized.attacker_index, MAX_CREATURE_SLOTS)
     if normalized.type == ActionType.ATTACK_PLAYER:
         return ATTACK_PLAYER_OFFSET + _require_range(normalized.attacker_index, MAX_CREATURE_SLOTS)
+    if normalized.type == ActionType.ATTACK_CREATURE:
+        attacker_index = _require_range(normalized.attacker_index, MAX_ATTACK_CREATURE_ATTACKERS)
+        target_index = _require_range(normalized.target_index, MAX_ATTACK_CREATURE_TARGETS)
+        return ATTACK_CREATURE_OFFSET + attacker_index * MAX_ATTACK_CREATURE_TARGETS + target_index
     if normalized.type == ActionType.END_MAIN:
         return END_MAIN_ID
     if normalized.type == ActionType.END_ATTACK:
@@ -56,6 +64,13 @@ def decode_action(action_id: int) -> Action:
         return Action(ActionType.END_MAIN)
     if action_id == END_ATTACK_ID:
         return Action(ActionType.END_ATTACK)
+    if ATTACK_CREATURE_OFFSET <= action_id < ATTACK_CREATURE_OFFSET + ATTACK_CREATURE_SIZE:
+        encoded = action_id - ATTACK_CREATURE_OFFSET
+        return Action(
+            ActionType.ATTACK_CREATURE,
+            attacker_index=encoded // MAX_ATTACK_CREATURE_TARGETS,
+            target_index=encoded % MAX_ATTACK_CREATURE_TARGETS,
+        )
 
     raise ValueError(f"Reserved action_id is not currently decodable: {action_id}")
 
@@ -77,6 +92,7 @@ def _normalize_action(action: Action | Mapping[str, Any]) -> Action:
             action_type,
             card_index=action.get("card_index"),
             attacker_index=action.get("attacker_index"),
+            target_index=action.get("target_index"),
         )
     raise ValueError(f"Unsupported action object: {action!r}")
 
