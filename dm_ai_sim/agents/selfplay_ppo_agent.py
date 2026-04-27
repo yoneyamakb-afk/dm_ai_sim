@@ -11,9 +11,16 @@ if TYPE_CHECKING:
 
 
 class SelfPlayPPOAgent:
+    _reported_prediction_failures: set[Path] = set()
+
     def __init__(self, model_path: str | Path) -> None:
         self.model_path = Path(model_path)
-        self.model = MaskablePPO.load(str(self.model_path))
+        self.model: MaskablePPO | None = None
+        if self.model_path.exists():
+            try:
+                self.model = MaskablePPO.load(str(self.model_path))
+            except Exception as exc:
+                print(f"Skipping SelfPlayPPOAgent model {self.model_path}: {exc}")
 
     def act(
         self,
@@ -21,13 +28,25 @@ class SelfPlayPPOAgent:
         player_id: int = 0,
         deterministic: bool = True,
     ) -> int:
-        observation = env.observation_vector(player_id=player_id)
-        action, _state = self.model.predict(
-            observation,
-            deterministic=deterministic,
-            action_masks=env.action_masks(),
-        )
-        return int(np.asarray(action).item())
+        legal_action_ids = env.base_env.legal_action_ids()
+        if not legal_action_ids:
+            raise ValueError("No legal action ids available.")
+        if self.model is None:
+            return legal_action_ids[0]
+
+        try:
+            action, _state = self.model.predict(
+                env.observation_vector(player_id=player_id),
+                deterministic=deterministic,
+                action_masks=env.action_masks(),
+            )
+        except Exception as exc:
+            if self.model_path not in self._reported_prediction_failures:
+                print(f"SelfPlayPPOAgent prediction failed, falling back: {exc}")
+                self._reported_prediction_failures.add(self.model_path)
+            return legal_action_ids[0]
+        action_id = int(np.asarray(action).item())
+        return action_id if action_id in legal_action_ids else legal_action_ids[0]
 
     @classmethod
     def from_default_path(cls) -> "SelfPlayPPOAgent":

@@ -1,0 +1,15 @@
+{
+  "ruleset_id": "dm_sample_2026_04",
+  "name": "Sample DM Ruleset",
+  "comprehensive_rules_version": "1.50",
+  "banlist_effective_date": "2026-03-16",
+  "regulation_date": "2026-03-16",
+  "max_copies_per_card": 4,
+  "same_name_exception_card_ids": [],
+  "allowed_card_ids": [],
+  "banned_card_ids": [],
+  "restricted_card_ids": [],
+  "hall_of_fame_card_ids": [],
+  "premium_hall_of_fame_card_ids": [],
+  "notes": "Sample only"
+}

@@ -1,0 +1,20 @@
+{
+  "name": "Reference Deck 01",
+  "format": "dm_current_reference",
+  "source": "ViewDeckSheet(1).pdf",
+  "cards": [
+    {"card_id": "DM_REF_001", "count": 4},
+    {"card_id": "DM_REF_002", "count": 4},
+    {"card_id": "DM_REF_003", "count": 4},
+    {"card_id": "DM_REF_004", "count": 4},
+    {"card_id": "DM_REF_005", "count": 4},
+    {"card_id": "DM_REF_006", "count": 4},
+    {"card_id": "DM_REF_007", "count": 4},
+    {"card_id": "DM_REF_008", "count": 3},
+    {"card_id": "DM_REF_009", "count": 4},
+    {"card_id": "DM_REF_010", "count": 2},
+    {"card_id": "DM_REF_011", "count": 1},
+    {"card_id": "DM_REF_012", "count": 1},
+    {"card_id": "DM_REF_013", "count": 1}
+  ]
+}

@@ -9,8 +9,12 @@ def test_encode_decode_round_trip() -> None:
     actions = [
         Action(ActionType.CHARGE_MANA, card_index=3),
         Action(ActionType.SUMMON, card_index=4),
+        Action(ActionType.CAST_SPELL, hand_index=5),
+        Action(ActionType.CAST_SPELL, hand_index=6, target_index=2),
         Action(ActionType.ATTACK_SHIELD, attacker_index=5),
         Action(ActionType.ATTACK_PLAYER, attacker_index=6),
+        Action(ActionType.BLOCK, blocker_index=7),
+        Action(ActionType.DECLINE_BLOCK),
         Action(ActionType.END_MAIN),
         Action(ActionType.END_ATTACK),
     ]
@@ -21,6 +25,9 @@ def test_encode_decode_round_trip() -> None:
 
 def test_encode_accepts_dict_actions() -> None:
     assert encode_action({"type": "CHARGE_MANA", "card_index": 2}) == 2
+    assert encode_action({"type": "CAST_SPELL", "hand_index": 3}) == 259
+    assert encode_action({"type": "CAST_SPELL", "hand_index": 2, "target_index": 1}) == 313
+    assert encode_action({"type": "BLOCK", "blocker_index": 3}) == 245
     assert encode_action({"type": ActionType.END_MAIN}) == 160
 
 

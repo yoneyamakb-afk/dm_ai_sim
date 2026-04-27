@@ -1,0 +1,16 @@
+{
+  "name": "Sample Deck",
+  "format": "dm_standard_sample",
+  "cards": [
+    {"card_id": "DM_SAMPLE_001", "count": 4},
+    {"card_id": "DM_SAMPLE_002", "count": 4},
+    {"card_id": "DM_SAMPLE_003", "count": 4},
+    {"card_id": "DM_SAMPLE_004", "count": 4},
+    {"card_id": "DM_SAMPLE_005", "count": 4},
+    {"card_id": "DM_SAMPLE_006", "count": 4},
+    {"card_id": "DM_SAMPLE_007", "count": 4},
+    {"card_id": "DM_SAMPLE_008", "count": 4},
+    {"card_id": "DM_SAMPLE_009", "count": 4},
+    {"card_id": "DM_SAMPLE_010", "count": 4}
+  ]
+}

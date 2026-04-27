@@ -9,6 +9,10 @@ MAX_HAND_SLOTS = 40
 MAX_CREATURE_SLOTS = 40
 MAX_ATTACK_CREATURE_ATTACKERS = 10
 MAX_ATTACK_CREATURE_TARGETS = 8
+MAX_BLOCKER_SLOTS = 8
+MAX_CAST_SPELL_HAND_SLOTS = 40
+MAX_CAST_SPELL_TARGET_HAND_SLOTS = 10
+MAX_CAST_SPELL_TARGETS = 8
 
 CHARGE_MANA_OFFSET = 0
 SUMMON_OFFSET = 40
@@ -18,9 +22,14 @@ END_MAIN_ID = 160
 END_ATTACK_ID = 161
 ATTACK_CREATURE_OFFSET = 162
 ATTACK_CREATURE_SIZE = MAX_ATTACK_CREATURE_ATTACKERS * MAX_ATTACK_CREATURE_TARGETS
+BLOCK_OFFSET = 242
+DECLINE_BLOCK_ID = 250
+CAST_SPELL_OFFSET = 256
+CAST_SPELL_TARGET_OFFSET = 296
+CAST_SPELL_TARGET_SIZE = MAX_CAST_SPELL_TARGET_HAND_SLOTS * MAX_CAST_SPELL_TARGETS
 
-ACTION_SPACE_SIZE = 256
-SUPPORTED_ACTION_IDS = ATTACK_CREATURE_OFFSET + ATTACK_CREATURE_SIZE
+ACTION_SPACE_SIZE = 384
+SUPPORTED_ACTION_IDS = CAST_SPELL_TARGET_OFFSET + CAST_SPELL_TARGET_SIZE
 
 
 def encode_action(action: Action | Mapping[str, Any]) -> int:
@@ -38,6 +47,19 @@ def encode_action(action: Action | Mapping[str, Any]) -> int:
         attacker_index = _require_range(normalized.attacker_index, MAX_ATTACK_CREATURE_ATTACKERS)
         target_index = _require_range(normalized.target_index, MAX_ATTACK_CREATURE_TARGETS)
         return ATTACK_CREATURE_OFFSET + attacker_index * MAX_ATTACK_CREATURE_TARGETS + target_index
+    if normalized.type == ActionType.CAST_SPELL:
+        hand_index = normalized.hand_index if normalized.hand_index is not None else normalized.card_index
+        if normalized.target_index is None:
+            return CAST_SPELL_OFFSET + _require_range(hand_index, MAX_CAST_SPELL_HAND_SLOTS)
+        return (
+            CAST_SPELL_TARGET_OFFSET
+            + _require_range(hand_index, MAX_CAST_SPELL_TARGET_HAND_SLOTS) * MAX_CAST_SPELL_TARGETS
+            + _require_range(normalized.target_index, MAX_CAST_SPELL_TARGETS)
+        )
+    if normalized.type == ActionType.BLOCK:
+        return BLOCK_OFFSET + _require_range(normalized.blocker_index, MAX_BLOCKER_SLOTS)
+    if normalized.type == ActionType.DECLINE_BLOCK:
+        return DECLINE_BLOCK_ID
     if normalized.type == ActionType.END_MAIN:
         return END_MAIN_ID
     if normalized.type == ActionType.END_ATTACK:
@@ -71,6 +93,19 @@ def decode_action(action_id: int) -> Action:
             attacker_index=encoded // MAX_ATTACK_CREATURE_TARGETS,
             target_index=encoded % MAX_ATTACK_CREATURE_TARGETS,
         )
+    if BLOCK_OFFSET <= action_id < BLOCK_OFFSET + MAX_BLOCKER_SLOTS:
+        return Action(ActionType.BLOCK, blocker_index=action_id - BLOCK_OFFSET)
+    if action_id == DECLINE_BLOCK_ID:
+        return Action(ActionType.DECLINE_BLOCK)
+    if CAST_SPELL_OFFSET <= action_id < CAST_SPELL_OFFSET + MAX_CAST_SPELL_HAND_SLOTS:
+        return Action(ActionType.CAST_SPELL, hand_index=action_id - CAST_SPELL_OFFSET)
+    if CAST_SPELL_TARGET_OFFSET <= action_id < CAST_SPELL_TARGET_OFFSET + CAST_SPELL_TARGET_SIZE:
+        encoded = action_id - CAST_SPELL_TARGET_OFFSET
+        return Action(
+            ActionType.CAST_SPELL,
+            hand_index=encoded // MAX_CAST_SPELL_TARGETS,
+            target_index=encoded % MAX_CAST_SPELL_TARGETS,
+        )
 
     raise ValueError(f"Reserved action_id is not currently decodable: {action_id}")
 
@@ -91,8 +126,10 @@ def _normalize_action(action: Action | Mapping[str, Any]) -> Action:
         return Action(
             action_type,
             card_index=action.get("card_index"),
+            hand_index=action.get("hand_index"),
             attacker_index=action.get("attacker_index"),
             target_index=action.get("target_index"),
+            blocker_index=action.get("blocker_index"),
         )
     raise ValueError(f"Unsupported action object: {action!r}")
 

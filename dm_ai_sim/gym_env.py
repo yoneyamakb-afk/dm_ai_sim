@@ -11,6 +11,7 @@ from dm_ai_sim.action_encoder import ACTION_SPACE_SIZE, legal_action_mask
 from dm_ai_sim.agents.heuristic_agent import HeuristicAgent
 from dm_ai_sim.agents.random_agent import RandomAgent
 from dm_ai_sim.env import Env, EnvConfig
+from dm_ai_sim.observation import OBSERVATION_SIZE, mana_observation_features
 from dm_ai_sim.state import Phase
 
 OpponentType = Literal["random", "heuristic"]
@@ -35,7 +36,7 @@ class DuelMastersGymEnv(gym.Env):
         self.config = config or DuelMastersGymConfig()
         self.render_mode = render_mode
         self.action_space = spaces.Discrete(ACTION_SPACE_SIZE)
-        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(24,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(OBSERVATION_SIZE,), dtype=np.float32)
         self.base_env = self._make_base_env()
         self.opponent_agent = self._make_opponent_agent()
         self.invalid_actions = 0
@@ -141,6 +142,17 @@ class DuelMastersGymEnv(gym.Env):
         opponent_untapped_blockers = [creature for creature in opponent_blockers if not creature.tapped]
         own_blocker_max_power = max((creature.card.power for creature in own_blockers), default=0)
         opponent_blocker_max_power = max((creature.card.power for creature in opponent_blockers), default=0)
+        pending = state.pending_attack
+        pending_for_player = pending if pending is not None else None
+        pending_blockers = own_untapped_blockers if pending_for_player and pending_for_player.defender_player == 0 else []
+        last_trigger = obs.get("last_trigger", {})
+        last_spell = obs.get("last_spell", {})
+        own_visible_triggers = self_obs["visible_trigger_count"]
+        opponent_visible_triggers = opponent_obs["visible_trigger_count"]
+        own_spell_count = self_obs["spell_count"] or 0
+        playable_spell_count = sum(1 for action_id in legal_ids if 256 <= action_id < 376)
+        own_graveyard_spells = self_obs["graveyard_spell_count"]
+        opponent_graveyard_spells = opponent_obs["graveyard_spell_count"]
 
         values = [
             1.0 if state.current_player == 0 else 0.0,
@@ -159,16 +171,56 @@ class DuelMastersGymEnv(gym.Env):
             opponent_obs["deck_count"] / 40.0,
             opponent_obs["shield_count"] / 5.0,
             len(opponent.mana) / 40.0,
-            len(opponent_blockers) / 40.0,
+            min(own_spell_count / 40.0, 1.0),
             min((max(opponent_powers) if opponent_powers else 0) / 10000.0, 1.0),
-            min(own_total_power / 100000.0, 1.0),
-            min(opponent_total_power / 100000.0, 1.0),
-            len(opponent_untapped_blockers) / 40.0,
-            len(legal_ids) / ACTION_SPACE_SIZE,
-            min(own_blocker_max_power / 10000.0, 1.0),
-            min(opponent_blocker_max_power / 10000.0, 1.0),
+            1.0 if pending_for_player is not None else min(playable_spell_count / 40.0, 1.0),
+            1.0 if pending_for_player and pending_for_player.defender_player == 0 else min(len(opponent.battle_zone) / 40.0, 1.0),
+            min(
+                (
+                    state.players[pending_for_player.attacker_player].battle_zone[pending_for_player.attacker_index].card.power
+                    if pending_for_player
+                    else own_graveyard_spells
+                )
+                / (10000.0 if pending_for_player else 40.0),
+                1.0,
+            ),
+            (len(pending_blockers) / 40.0) if pending_for_player else len(legal_ids) / ACTION_SPACE_SIZE,
+            min(
+                (
+                    max((creature.card.power for creature in pending_blockers), default=0)
+                    if pending_for_player
+                    else opponent_graveyard_spells
+                )
+                / (10000.0 if pending_for_player else 40.0),
+                1.0,
+            ),
+            (1.0 if pending_for_player and pending_for_player.target_type == "PLAYER" else 0.0)
+            if pending_for_player
+            else max(
+                self._trigger_effect_value(last_trigger.get("effect")),
+                self._spell_effect_value(last_spell.get("effect")) if last_spell.get("cast") else 0.0,
+            ),
         ]
+        values.extend(mana_observation_features(self_obs, opponent_obs))
         return np.asarray(values, dtype=np.float32)
+
+    def _trigger_effect_value(self, effect: str | None) -> float:
+        values = {
+            "DRAW_1": 0.25,
+            "DESTROY_ATTACKER": 0.50,
+            "SUMMON_SELF": 0.75,
+            "GAIN_SHIELD": 1.0,
+        }
+        return values.get(effect, 0.0)
+
+    def _spell_effect_value(self, effect: str | None) -> float:
+        values = {
+            "DRAW_1": 0.20,
+            "DESTROY_TARGET": 0.45,
+            "GAIN_SHIELD": 0.70,
+            "MANA_BOOST": 0.95,
+        }
+        return values.get(effect, 0.0)
 
     def _info(self, base_info: dict[str, Any] | None = None, invalid_action: bool = False) -> dict[str, Any]:
         info = dict(base_info or {})

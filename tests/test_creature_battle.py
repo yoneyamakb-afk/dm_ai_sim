@@ -1,4 +1,4 @@
-from dm_ai_sim.action_encoder import decode_action, encode_action, legal_action_mask
+from dm_ai_sim.action_encoder import ACTION_SPACE_SIZE, decode_action, encode_action, legal_action_mask
 from dm_ai_sim.actions import Action, ActionType
 from dm_ai_sim.card import Card
 from dm_ai_sim.env import Env, EnvConfig
@@ -75,4 +75,4 @@ def test_gym_env_still_steps_with_creature_battle_action_space() -> None:
     assert isinstance(reward, float)
     assert isinstance(terminated, bool)
     assert isinstance(truncated, bool)
-    assert len(next_info["action_mask"]) == 256
+    assert len(next_info["action_mask"]) == ACTION_SPACE_SIZE

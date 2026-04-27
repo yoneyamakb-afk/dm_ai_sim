@@ -41,11 +41,18 @@ desktop.ini
 # Generated training artifacts
 saved_models/*.zip
 saved_models/opponents/*.zip
+saved_models/opponents_blocker/*.zip
+saved_models/opponents_blocker_finetuned/*.zip
+saved_models/opponents_optional_block/*.zip
+saved_models/opponents_optional_block_finetuned/*.zip
+saved_models/opponents_trigger/*.zip
+saved_models/opponents_trigger_finetuned/*.zip
 *.pt
 *.pth
 *.onnx
 
 # Logs and temporary files
 *.log
+logs/
 tmp/
 temp/

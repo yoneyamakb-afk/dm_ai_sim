@@ -37,6 +37,17 @@ class PlayerState:
 
 
 @dataclass(slots=True)
+class PendingAttack:
+    attacker_player: int
+    defender_player: int
+    attacker_index: int
+    target_type: str
+    target_index: int | None
+    original_phase: Phase
+    context_id: int = 0
+
+
+@dataclass(slots=True)
 class GameState:
     players: list[PlayerState]
     current_player: int = 0
@@ -45,6 +56,14 @@ class GameState:
     winner: int | None = None
     done: bool = False
     first_turn: bool = True
+    pending_attack: PendingAttack | None = None
+    next_attack_context_id: int = 1
+    last_trigger_activated: bool = False
+    last_trigger_effect: str | None = None
+    last_trigger_player: int | None = None
+    last_spell_cast: bool = False
+    last_spell_effect: str | None = None
+    last_spell_player: int | None = None
 
     @property
     def opponent(self) -> int:

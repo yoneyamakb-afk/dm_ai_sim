@@ -7,8 +7,16 @@ from typing import Any
 from dm_ai_sim.action_encoder import decode_action, encode_action, legal_action_mask
 from dm_ai_sim.actions import Action, ActionType
 from dm_ai_sim.card import Card, make_vanilla_deck
+from dm_ai_sim.mana import (
+    civilization_counts,
+    enters_mana_tapped,
+    mana_civilizations,
+    multicolor_mana_count,
+    playable_hand_counts,
+    tap_mana_for_card,
+)
 from dm_ai_sim.rules import legal_actions as compute_legal_actions
-from dm_ai_sim.state import Creature, GameState, ManaCard, Phase, PlayerState
+from dm_ai_sim.state import Creature, GameState, ManaCard, PendingAttack, Phase, PlayerState
 
 
 @dataclass(slots=True)
@@ -59,54 +67,74 @@ class Env:
         reward = 0.0
         info: dict[str, Any] = {}
         info["blocked"] = False
+        info["declined_block"] = False
+        info["shield_broken"] = False
+        info["broken_shield_card"] = None
+        info["trigger_activated"] = False
+        info["trigger_effect"] = None
+        info["attacker_destroyed_by_trigger"] = False
+        info["spell_cast"] = False
+        info["spell_name"] = None
+        info["spell_effect"] = None
+        info["spell_target_index"] = None
+        info["charged_card"] = None
+        info["charged_card_civilizations"] = None
+        info["charged_card_enters_tapped"] = False
 
         if action.type == ActionType.CHARGE_MANA:
+            self._raise_if_pending(action)
             assert action.card_index is not None
             player = state.players[acting_player]
             card = player.hand.pop(action.card_index)
-            player.mana.append(ManaCard(card=card))
+            tapped = enters_mana_tapped(card)
+            player.mana.append(ManaCard(card=card, tapped=tapped))
             player.charged_mana_this_turn = True
+            info["charged_card"] = card.name
+            info["charged_card_civilizations"] = list(card.civilizations or ())
+            info["charged_card_enters_tapped"] = tapped
 
         elif action.type == ActionType.SUMMON:
+            self._raise_if_pending(action)
             assert action.card_index is not None
             player = state.players[acting_player]
-            card = player.hand.pop(action.card_index)
-            self._tap_mana_for_cost(player, card.cost)
+            card = player.hand[action.card_index]
+            tap_mana_for_card(player, card)
+            player.hand.pop(action.card_index)
             player.battle_zone.append(Creature(card=card, summoned_turn=state.turn_number))
 
+        elif action.type == ActionType.CAST_SPELL:
+            self._raise_if_pending(action)
+            info.update(self._cast_spell(action.hand_index if action.hand_index is not None else action.card_index, action.target_index))
+
         elif action.type == ActionType.END_MAIN:
+            self._raise_if_pending(action)
             state.phase = Phase.ATTACK
 
         elif action.type == ActionType.ATTACK_SHIELD:
+            self._raise_if_pending(action)
             assert action.attacker_index is not None
-            block_info = self._try_block_attack(action.attacker_index)
-            if block_info is not None:
-                info.update(block_info)
-            else:
-                attacker = state.players[acting_player].battle_zone[action.attacker_index]
-                attacker.tapped = True
-                opponent = state.players[state.opponent]
-                if opponent.shields:
-                    opponent.hand.append(opponent.shields.pop())
+            info.update(self._declare_attack(action.attacker_index, "SHIELD"))
 
         elif action.type == ActionType.ATTACK_PLAYER:
+            self._raise_if_pending(action)
             assert action.attacker_index is not None
-            block_info = self._try_block_attack(action.attacker_index)
-            if block_info is not None:
-                info.update(block_info)
-            else:
-                attacker = state.players[acting_player].battle_zone[action.attacker_index]
-                attacker.tapped = True
-                state.winner = acting_player
-                state.done = True
-                state.phase = Phase.GAME_OVER
+            info.update(self._declare_attack(action.attacker_index, "PLAYER"))
 
         elif action.type == ActionType.ATTACK_CREATURE:
+            self._raise_if_pending(action)
             assert action.attacker_index is not None
             assert action.target_index is not None
             self._battle_creatures(action.attacker_index, action.target_index)
 
+        elif action.type == ActionType.BLOCK:
+            assert action.blocker_index is not None
+            info.update(self._resolve_block(action.blocker_index))
+
+        elif action.type == ActionType.DECLINE_BLOCK:
+            info.update(self._resolve_decline_block())
+
         elif action.type == ActionType.END_ATTACK:
+            self._raise_if_pending(action)
             self._advance_turn()
 
         done = state.done
@@ -155,6 +183,17 @@ class Env:
             "turn_number": state.turn_number,
             "winner": state.winner,
             "done": state.done,
+            "pending_attack": self._pending_attack_observation(),
+            "last_trigger": {
+                "activated": state.last_trigger_activated,
+                "effect": state.last_trigger_effect,
+                "player": state.last_trigger_player,
+            },
+            "last_spell": {
+                "cast": state.last_spell_cast,
+                "effect": state.last_spell_effect,
+                "player": state.last_spell_player,
+            },
             "self": self._player_observation(state.players[viewer], reveal_hand=True),
             "opponent": self._player_observation(state.players[opponent], reveal_hand=False),
             "legal_actions": self.legal_actions() if viewer == state.current_player else [],
@@ -206,6 +245,7 @@ class Env:
         state = self._require_state()
         player = state.players[state.current_player]
         state.phase = Phase.MAIN
+        state.pending_attack = None
         player.charged_mana_this_turn = False
         for mana_card in player.mana:
             mana_card.tapped = False
@@ -230,15 +270,67 @@ class Env:
         state.first_turn = False
         self._start_turn(draw_card=True)
 
-    def _tap_mana_for_cost(self, player: PlayerState, cost: int) -> None:
-        tapped = 0
-        for mana_card in player.mana:
-            if not mana_card.tapped:
-                mana_card.tapped = True
-                tapped += 1
-                if tapped == cost:
-                    return
-        raise RuntimeError("Not enough untapped mana to pay cost.")
+    def _cast_spell(self, hand_index: int | None, target_index: int | None) -> dict[str, Any]:
+        state = self._require_state()
+        if hand_index is None:
+            raise ValueError("CAST_SPELL requires hand_index.")
+        player = state.players[state.current_player]
+        opponent = state.players[state.opponent]
+        if hand_index < 0 or hand_index >= len(player.hand):
+            raise ValueError(f"Invalid spell hand index: {hand_index}")
+        card = player.hand[hand_index]
+        if card.card_type != "SPELL":
+            raise ValueError(f"Card is not a spell: {card.name}")
+        effect = card.spell_effect or card.trigger_effect
+        if effect is None:
+            raise ValueError(f"Spell has no effect: {card.name}")
+        if effect == "DESTROY_TARGET" and target_index is None:
+            raise ValueError("DESTROY_TARGET requires target_index.")
+        if effect != "DESTROY_TARGET" and target_index is not None:
+            raise ValueError(f"{effect} does not use target_index.")
+        if effect == "DESTROY_TARGET" and (target_index < 0 or target_index >= len(opponent.battle_zone)):
+            raise ValueError(f"Invalid spell target index: {target_index}")
+
+        spell_card = player.hand[hand_index]
+        tap_mana_for_card(player, spell_card)
+        player.hand.pop(hand_index)
+        info: dict[str, Any] = {
+            "spell_cast": True,
+            "spell_name": spell_card.name,
+            "spell_effect": effect,
+            "spell_target_index": target_index,
+        }
+        self._set_last_spell(effect, state.current_player)
+
+        if effect == "DRAW_1":
+            player.graveyard.append(spell_card)
+            self._draw_card(player)
+            return info
+        if effect == "DESTROY_TARGET":
+            assert target_index is not None
+            destroyed = opponent.battle_zone.pop(target_index)
+            opponent.graveyard.append(destroyed.card)
+            player.graveyard.append(spell_card)
+            return info
+        if effect == "GAIN_SHIELD":
+            player.graveyard.append(spell_card)
+            if player.deck:
+                player.shields.append(player.deck.pop())
+            return info
+        if effect == "MANA_BOOST":
+            player.graveyard.append(spell_card)
+            if player.deck:
+                player.mana.append(ManaCard(card=player.deck.pop(), tapped=False))
+            return info
+
+        player.graveyard.append(spell_card)
+        return info
+
+    def _set_last_spell(self, effect: str, player_id: int) -> None:
+        state = self._require_state()
+        state.last_spell_cast = True
+        state.last_spell_effect = effect
+        state.last_spell_player = player_id
 
     def _battle_creatures(self, attacker_index: int, target_index: int) -> None:
         state = self._require_state()
@@ -246,51 +338,200 @@ class Env:
         opponent = state.players[state.opponent]
         self._resolve_battle(player, attacker_index, opponent, target_index)
 
-    def _try_block_attack(self, attacker_index: int) -> dict[str, Any] | None:
+    def _declare_attack(self, attacker_index: int, target_type: str) -> dict[str, Any]:
         state = self._require_state()
         player = state.players[state.current_player]
         opponent = state.players[state.opponent]
-        blocker_index = self._choose_blocker_index(attacker_index)
-        if blocker_index is None:
-            return None
+        attacker = player.battle_zone[attacker_index]
+        attacker.tapped = True
+        info: dict[str, Any] = {"pending_attack_created": False}
+        if self._blocker_indices(opponent):
+            state.pending_attack = PendingAttack(
+                attacker_player=state.current_player,
+                defender_player=state.opponent,
+                attacker_index=attacker_index,
+                target_type=target_type,
+                target_index=None,
+                original_phase=state.phase,
+                context_id=state.next_attack_context_id,
+            )
+            state.next_attack_context_id += 1
+            state.current_player = state.opponent
+            state.phase = Phase.ATTACK
+            info["pending_attack_created"] = True
+            return info
 
-        blocker = opponent.battle_zone[blocker_index]
+        info.update(self._resolve_unblocked_attack(state.current_player, state.opponent, target_type, attacker_index))
+        return info
+
+    def _resolve_block(self, blocker_index: int) -> dict[str, Any]:
+        state = self._require_state()
+        pending = state.pending_attack
+        if pending is None:
+            raise ValueError("BLOCK requires a pending attack.")
+        if state.current_player != pending.defender_player:
+            raise ValueError("Only the defender can block.")
+        defender = state.players[pending.defender_player]
+        if blocker_index >= len(defender.battle_zone):
+            raise ValueError(f"Invalid blocker index: {blocker_index}")
+        blocker = defender.battle_zone[blocker_index]
+        if not blocker.card.blocker or blocker.tapped:
+            raise ValueError(f"Creature cannot block: {blocker_index}")
+
         blocker_name = blocker.card.name
-        self._resolve_battle(player, attacker_index, opponent, blocker_index)
+        blocker_power = blocker.card.power
+        attacker = state.players[pending.attacker_player].battle_zone[pending.attacker_index]
+        attacker_power = attacker.card.power
+        self._clear_last_trigger()
+        self._resolve_battle(
+            state.players[pending.attacker_player],
+            pending.attacker_index,
+            defender,
+            blocker_index,
+        )
+        self._clear_pending_attack()
         return {
             "blocked": True,
             "blocker_index": blocker_index,
             "blocker_name": blocker_name,
+            "blocker_power": blocker_power,
+            "attacker_power": attacker_power,
         }
 
-    def _choose_blocker_index(self, attacker_index: int) -> int | None:
+    def _resolve_decline_block(self) -> dict[str, Any]:
         state = self._require_state()
-        attacker = state.players[state.current_player].battle_zone[attacker_index]
-        blockers = [
-            (index, creature)
-            for index, creature in enumerate(state.players[state.opponent].battle_zone)
+        pending = state.pending_attack
+        if pending is None:
+            raise ValueError("DECLINE_BLOCK requires a pending attack.")
+        info = self._resolve_unblocked_attack(
+            pending.attacker_player,
+            pending.defender_player,
+            pending.target_type,
+            pending.attacker_index,
+        )
+        self._clear_pending_attack()
+        info["declined_block"] = True
+        return info
+
+    def _resolve_unblocked_attack(
+        self,
+        attacker_player: int,
+        defender_player: int,
+        target_type: str,
+        attacker_index: int | None,
+    ) -> dict[str, Any]:
+        state = self._require_state()
+        defender = state.players[defender_player]
+        self._clear_last_trigger()
+        self._clear_last_spell()
+        info: dict[str, Any] = {
+            "shield_broken": False,
+            "broken_shield_card": None,
+            "trigger_activated": False,
+            "trigger_effect": None,
+            "attacker_destroyed_by_trigger": False,
+        }
+        if target_type == "SHIELD":
+            if defender.shields:
+                broken_card = defender.shields.pop()
+                info["shield_broken"] = True
+                info["broken_shield_card"] = broken_card.name
+                info.update(self._resolve_shield_trigger(broken_card, defender_player, attacker_player, attacker_index))
+            return info
+        if target_type == "PLAYER":
+            state.winner = attacker_player
+            state.done = True
+            state.phase = Phase.GAME_OVER
+            return info
+        raise ValueError(f"Unsupported pending attack target type: {target_type}")
+
+    def _resolve_shield_trigger(
+        self,
+        card: Card,
+        defender_player: int,
+        attacker_player: int,
+        attacker_index: int | None,
+    ) -> dict[str, Any]:
+        state = self._require_state()
+        defender = state.players[defender_player]
+        info: dict[str, Any] = {
+            "trigger_activated": False,
+            "trigger_effect": None,
+            "attacker_destroyed_by_trigger": False,
+        }
+        if not card.shield_trigger or card.trigger_effect is None:
+            defender.hand.append(card)
+            return info
+
+        effect = card.trigger_effect
+        info["trigger_activated"] = True
+        info["trigger_effect"] = effect
+        state.last_trigger_activated = True
+        state.last_trigger_effect = effect
+        state.last_trigger_player = defender_player
+
+        if effect == "DRAW_1":
+            defender.graveyard.append(card)
+            self._draw_card(defender)
+            return info
+
+        if effect == "DESTROY_ATTACKER":
+            defender.graveyard.append(card)
+            attacker_zone = state.players[attacker_player].battle_zone
+            if attacker_index is not None and attacker_index < len(attacker_zone):
+                destroyed = attacker_zone.pop(attacker_index)
+                state.players[attacker_player].graveyard.append(destroyed.card)
+                info["attacker_destroyed_by_trigger"] = True
+            return info
+
+        if effect == "SUMMON_SELF" and card.card_type == "CREATURE":
+            defender.battle_zone.append(Creature(card=card, summoned_turn=state.turn_number))
+            return info
+
+        if effect == "GAIN_SHIELD":
+            defender.graveyard.append(card)
+            if defender.deck:
+                defender.shields.append(defender.deck.pop())
+            return info
+
+        defender.hand.append(card)
+        info["trigger_activated"] = False
+        info["trigger_effect"] = None
+        self._clear_last_trigger()
+        return info
+
+    def _clear_last_trigger(self) -> None:
+        state = self._require_state()
+        state.last_trigger_activated = False
+        state.last_trigger_effect = None
+        state.last_trigger_player = None
+
+    def _clear_last_spell(self) -> None:
+        state = self._require_state()
+        state.last_spell_cast = False
+        state.last_spell_effect = None
+        state.last_spell_player = None
+
+    def _clear_pending_attack(self) -> None:
+        state = self._require_state()
+        pending = state.pending_attack
+        if pending is None:
+            return
+        state.current_player = pending.attacker_player
+        if not state.done:
+            state.phase = pending.original_phase
+        state.pending_attack = None
+
+    def _blocker_indices(self, player: PlayerState) -> list[int]:
+        return [
+            index
+            for index, creature in enumerate(player.battle_zone)
             if creature.card.blocker and not creature.tapped
         ]
-        if not blockers:
-            return None
 
-        destroy_without_dying = [
-            (index, creature)
-            for index, creature in blockers
-            if creature.card.power > attacker.card.power
-        ]
-        if destroy_without_dying:
-            return min(destroy_without_dying, key=lambda item: item[1].card.power)[0]
-
-        trade = [
-            (index, creature)
-            for index, creature in blockers
-            if creature.card.power == attacker.card.power
-        ]
-        if trade:
-            return trade[0][0]
-
-        return min(blockers, key=lambda item: item[1].card.power)[0]
+    def _raise_if_pending(self, action: Action) -> None:
+        if self._require_state().pending_attack is not None:
+            raise ValueError(f"Only BLOCK or DECLINE_BLOCK are legal during pending attack: {action}")
 
     def _resolve_battle(
         self,
@@ -313,6 +554,26 @@ class Env:
             destroyed_attacker = attacking_player.battle_zone.pop(attacker_index)
             attacking_player.graveyard.append(destroyed_attacker.card)
 
+    def _pending_attack_observation(self) -> dict[str, Any] | None:
+        state = self._require_state()
+        pending = state.pending_attack
+        if pending is None:
+            return None
+        attacker = state.players[pending.attacker_player].battle_zone[pending.attacker_index]
+        defender = state.players[pending.defender_player]
+        blockers = [defender.battle_zone[index] for index in self._blocker_indices(defender)]
+        return {
+            "attacker_player": pending.attacker_player,
+            "defender_player": pending.defender_player,
+            "attacker_index": pending.attacker_index,
+            "attacker_power": attacker.card.power,
+            "target_type": pending.target_type,
+            "target_index": pending.target_index,
+            "context_id": pending.context_id,
+            "blocker_count": len(blockers),
+            "blocker_max_power": max((creature.card.power for creature in blockers), default=0),
+        }
+
     def _draw_card(self, player: PlayerState) -> bool:
         if not player.deck:
             return False
@@ -331,7 +592,11 @@ class Env:
             "hand_count": len(player.hand),
             "shield_count": len(player.shields),
             "mana": [
-                {"card": self._card_observation(mana_card.card), "tapped": mana_card.tapped}
+                {
+                    "card": self._card_observation(mana_card.card),
+                    "tapped": mana_card.tapped,
+                    "civilizations": list(mana_civilizations(mana_card)),
+                }
                 for mana_card in player.mana
             ],
             "battle_zone": [
@@ -344,6 +609,17 @@ class Env:
             ],
             "graveyard": [self._card_observation(card) for card in player.graveyard],
             "charged_mana_this_turn": player.charged_mana_this_turn,
+            "visible_trigger_count": self._visible_trigger_count(player),
+            "spell_count": sum(1 for card in player.hand if card.card_type == "SPELL") if reveal_hand else None,
+            "graveyard_spell_count": sum(1 for card in player.graveyard if card.card_type == "SPELL"),
+            "civilization_counts": civilization_counts(player.mana),
+            "untapped_civilization_counts": civilization_counts(player.mana, untapped_only=True),
+            "multicolor_mana_count": multicolor_mana_count(player.mana),
+            "playable_hand_count": playable_hand_counts(player)["playable"] if reveal_hand else None,
+            "unplayable_due_to_civilization_count": (
+                playable_hand_counts(player)["civilization_shortfall"] if reveal_hand else None
+            ),
+            "unplayable_due_to_cost_count": playable_hand_counts(player)["cost_shortfall"] if reveal_hand else None,
         }
 
     def _card_observation(self, card: Card) -> dict[str, Any]:
@@ -353,8 +629,18 @@ class Env:
             "cost": card.cost,
             "power": card.power,
             "civilization": card.civilization,
+            "civilizations": list(card.civilizations or (card.civilization,)),
             "blocker": card.blocker,
+            "shield_trigger": card.shield_trigger,
+            "card_type": card.card_type,
+            "trigger_effect": card.trigger_effect,
+            "spell_effect": card.spell_effect,
         }
+
+    def _visible_trigger_count(self, player: PlayerState) -> int:
+        return sum(1 for card in player.graveyard if card.shield_trigger) + sum(
+            1 for creature in player.battle_zone if creature.card.shield_trigger
+        )
 
     def _intermediate_reward(self, action: Action) -> float:
         if action.type == ActionType.ATTACK_SHIELD:

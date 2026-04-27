@@ -27,28 +27,50 @@ class PPOAgent:
 
         if deterministic:
             if isinstance(self.model, MaskablePPO):
-                action, _state = self.model.predict(
-                    observation,
-                    deterministic=True,
-                    action_masks=gym_env.action_masks(),
-                )
-                return int(np.asarray(action).item())
-            probabilities = self._action_probabilities(observation)
-            return max(legal_action_ids, key=lambda action_id: probabilities[action_id])
+                try:
+                    action, _state = self.model.predict(
+                        observation,
+                        deterministic=True,
+                        action_masks=gym_env.action_masks(),
+                    )
+                except Exception as exc:
+                    print(f"PPOAgent prediction failed, falling back: {exc}")
+                    return legal_action_ids[0]
+                action_id = int(np.asarray(action).item())
+                return action_id if action_id in legal_action_ids else legal_action_ids[0]
+            try:
+                probabilities = self._action_probabilities(observation)
+                return max(legal_action_ids, key=lambda action_id: probabilities[action_id])
+            except Exception as exc:
+                print(f"PPOAgent probability lookup failed, falling back: {exc}")
+                return legal_action_ids[0]
 
         if isinstance(self.model, MaskablePPO):
-            action, _state = self.model.predict(
-                observation,
-                deterministic=False,
-                action_masks=gym_env.action_masks(),
-            )
-            return int(np.asarray(action).item())
+            try:
+                action, _state = self.model.predict(
+                    observation,
+                    deterministic=False,
+                    action_masks=gym_env.action_masks(),
+                )
+            except Exception as exc:
+                print(f"PPOAgent prediction failed, falling back: {exc}")
+                return legal_action_ids[0]
+            action_id = int(np.asarray(action).item())
+            return action_id if action_id in legal_action_ids else legal_action_ids[0]
 
-        action, _state = self.model.predict(observation, deterministic=False)
+        try:
+            action, _state = self.model.predict(observation, deterministic=False)
+        except Exception as exc:
+            print(f"PPOAgent prediction failed, falling back: {exc}")
+            return legal_action_ids[0]
         action_id = int(np.asarray(action).item())
         if action_id in legal_action_ids:
             return action_id
-        probabilities = self._action_probabilities(observation)
+        try:
+            probabilities = self._action_probabilities(observation)
+        except Exception as exc:
+            print(f"PPOAgent probability lookup failed, falling back: {exc}")
+            return legal_action_ids[0]
         legal_probs = np.asarray([probabilities[action_id] for action_id in legal_action_ids], dtype=np.float64)
         if legal_probs.sum() <= 0:
             return legal_action_ids[0]

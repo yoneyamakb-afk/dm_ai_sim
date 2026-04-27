@@ -1,0 +1,15 @@
+{
+  "ruleset_id": "dm_reference_2026_04",
+  "name": "Reference DM Ruleset",
+  "comprehensive_rules_version": "unknown",
+  "banlist_effective_date": "unknown",
+  "regulation_date": "2026-04-27",
+  "max_copies_per_card": 4,
+  "same_name_exception_card_ids": ["DM_REF_014"],
+  "allowed_card_ids": [],
+  "banned_card_ids": [],
+  "restricted_card_ids": [],
+  "hall_of_fame_card_ids": [],
+  "premium_hall_of_fame_card_ids": [],
+  "notes": "Reference ruleset for submitted deck PDFs. DM_REF_014 is a confirmed same-name count exception."
+}
