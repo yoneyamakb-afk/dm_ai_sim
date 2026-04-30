@@ -6,8 +6,39 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from dm_ai_sim.card import Card, CardType
+from dm_ai_sim.card import Card
 from dm_ai_sim.card_tags import KNOWN_ABILITY_TAGS
+
+
+@dataclass(frozen=True, slots=True)
+class TwinpactSideData:
+    name: str
+    cost: int | None
+    civilizations: tuple[str, ...]
+    card_type: str
+    power: int | None
+    races: tuple[str, ...] = ()
+    text: str = ""
+    ability_tags: tuple[str, ...] = ()
+
+    @classmethod
+    def from_mapping(cls, raw: dict[str, Any] | None) -> "TwinpactSideData | None":
+        if raw is None:
+            return None
+        ability_tags = tuple(str(tag) for tag in raw.get("ability_tags", ()))
+        unknown = [tag for tag in ability_tags if tag not in KNOWN_ABILITY_TAGS]
+        if unknown:
+            warnings.warn(f"Unknown ability tags on twinpact side {raw.get('name')}: {unknown}", RuntimeWarning, stacklevel=2)
+        return cls(
+            name=str(raw.get("name", "")),
+            cost=int(raw["cost"]) if raw.get("cost") is not None else None,
+            civilizations=tuple(str(value).upper() for value in raw.get("civilizations", ["UNKNOWN"])),
+            card_type=str(raw.get("card_type", "UNKNOWN")).upper(),
+            power=int(raw["power"]) if raw.get("power") is not None else None,
+            races=tuple(str(value) for value in raw.get("races", ())),
+            text=str(raw.get("text", "")),
+            ability_tags=ability_tags,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +61,9 @@ class CardData:
     unsupported_tags: tuple[str, ...] = ()
     regulation: dict[str, Any] = field(default_factory=dict)
     notes: str = ""
+    is_twinpact: bool = False
+    top_side: TwinpactSideData | None = None
+    bottom_side: TwinpactSideData | None = None
 
     @classmethod
     def from_mapping(cls, raw: dict[str, Any]) -> "CardData":
@@ -56,6 +90,9 @@ class CardData:
             unsupported_tags=tuple(str(tag) for tag in raw.get("unsupported_tags", ())),
             regulation=dict(raw.get("regulation", {})),
             notes=str(raw.get("notes", "")),
+            is_twinpact=bool(raw.get("is_twinpact", False)),
+            top_side=TwinpactSideData.from_mapping(raw.get("top_side")),
+            bottom_side=TwinpactSideData.from_mapping(raw.get("bottom_side")),
         )
 
 
@@ -81,6 +118,12 @@ class CardDatabase:
 
     def to_runtime_card(self, card_id: str, strict: bool = False) -> Card:
         card = self.get(card_id)
+        if card.is_twinpact:
+            message = f"{card.card_id} is a twinpact card and runtime twinpact conversion is not supported"
+            if strict:
+                raise ValueError(message)
+            warnings.warn(message, RuntimeWarning, stacklevel=2)
+            raise ValueError(message)
         unknown_fields = unknown_data_fields(card)
         if card.unsupported_tags or unknown_fields:
             parts = []
@@ -103,6 +146,7 @@ class CardDatabase:
             card_type=card.card_type if card.card_type in {"CREATURE", "SPELL"} else "CREATURE",  # type: ignore[arg-type]
             trigger_effect=card.trigger_effect,  # type: ignore[arg-type]
             spell_effect=card.spell_effect,
+            ability_tags=card.ability_tags,
         )
 
 
@@ -121,6 +165,8 @@ def load_card_database(path: str | Path) -> CardDatabase:
 
 def unknown_data_fields(card: CardData) -> tuple[str, ...]:
     fields: list[str] = []
+    if card.is_twinpact:
+        return tuple(missing_official_data_fields(card))
     if card.cost is None:
         fields.append("cost")
     if card.power is None and card.card_type == "CREATURE":
@@ -130,6 +176,41 @@ def unknown_data_fields(card: CardData) -> tuple[str, ...]:
     if card.card_type not in {"CREATURE", "SPELL"}:
         fields.append("card_type")
     return tuple(fields)
+
+
+def missing_official_data_fields(card: CardData) -> tuple[str, ...]:
+    fields: list[str] = []
+    if card.is_twinpact:
+        _extend_missing_side_fields(fields, "top_side", card.top_side)
+        _extend_missing_side_fields(fields, "bottom_side", card.bottom_side)
+        return tuple(fields)
+    if card.cost is None:
+        fields.append("cost")
+    if not card.civilizations or "UNKNOWN" in card.civilizations:
+        fields.append("civilizations")
+    if card.card_type not in {"CREATURE", "SPELL"}:
+        fields.append("card_type")
+    if card.card_type == "CREATURE" and card.power is None:
+        fields.append("power")
+    if not card.text:
+        fields.append("text")
+    return tuple(fields)
+
+
+def _extend_missing_side_fields(fields: list[str], prefix: str, side: TwinpactSideData | None) -> None:
+    if side is None:
+        fields.append(prefix)
+        return
+    if side.cost is None:
+        fields.append("cost")
+    if not side.civilizations or "UNKNOWN" in side.civilizations:
+        fields.append("civilizations")
+    if side.card_type not in {"CREATURE", "SPELL"}:
+        fields.append("card_type")
+    if side.card_type == "CREATURE" and side.power is None:
+        fields.append("power")
+    if not side.text:
+        fields.append("text")
 
 
 def _stable_runtime_id(card_id: str) -> int:

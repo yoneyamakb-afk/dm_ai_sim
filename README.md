@@ -738,6 +738,17 @@ python -m dm_ai_sim.inspect_reference_decks
 
 参考デッキは未対応能力と未確認公式データが多いため、この段階の大会用評価結果は信頼できません。まず互換性レポートで `unsupported_tags_summary`、`unknown_data_count`、4枚超過カード、`SAME_NAME_MORE_THAN_4_ALLOWED` 例外候補を確認してください。
 
+Reference Deck 02の第1段階として、《特攻の忠剣ハチ公》本体を動かす簡易能力を追加しています。`SPEED_ATTACKER` は召喚ターン攻撃を可能にし、攻撃終了時に簡易ガチンコ・ジャッジを行い、勝った場合は山札から同名ハチ公を自動でバトルゾーンに出します。公式の「出してもよい」は将来の任意選択Action化候補です。
+
+ハチ公挙動の確認:
+
+```powershell
+python -m dm_ai_sim.evaluate_hachiko
+python -m dm_ai_sim.analyze_hachiko_logs
+```
+
+`data/decks/hachiko_runtime_test_deck.json` は能力確認用デッキであり、大会評価用ではありません。
+
 ## 参考にした研究・設計観点
 
 - [Zha et al., "DouZero: Mastering DouDizhu with Self-Play Deep Reinforcement Learning", ICML 2021](https://arxiv.org/abs/2106.06135)。可変合法手、自己対戦、Deep Monte-Carloの考え方を参照。

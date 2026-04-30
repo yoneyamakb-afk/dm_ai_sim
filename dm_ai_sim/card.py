@@ -23,6 +23,7 @@ class Card:
     card_type: CardType = "CREATURE"
     trigger_effect: TriggerEffect | None = None
     spell_effect: str | None = None
+    ability_tags: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         civilizations = self.civilizations
@@ -35,6 +36,7 @@ class Card:
             normalized = tuple(value for value in normalized if value != "COLORLESS")
         object.__setattr__(self, "civilizations", normalized)
         object.__setattr__(self, "civilization", normalized[0])
+        object.__setattr__(self, "ability_tags", tuple(dict.fromkeys(str(tag) for tag in self.ability_tags)))
 
 
 def make_vanilla_deck(size: int = 40, base_id: int = 0) -> list[Card]:

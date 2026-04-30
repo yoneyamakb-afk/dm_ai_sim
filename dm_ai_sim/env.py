@@ -80,6 +80,7 @@ class Env:
         info["charged_card"] = None
         info["charged_card_civilizations"] = None
         info["charged_card_enters_tapped"] = False
+        self._set_after_attack_defaults(info)
 
         if action.type == ActionType.CHARGE_MANA:
             self._raise_if_pending(action)
@@ -124,7 +125,7 @@ class Env:
             self._raise_if_pending(action)
             assert action.attacker_index is not None
             assert action.target_index is not None
-            self._battle_creatures(action.attacker_index, action.target_index)
+            info.update(self._attack_creature(action.attacker_index, action.target_index))
 
         elif action.type == ActionType.BLOCK:
             assert action.blocker_index is not None
@@ -337,6 +338,18 @@ class Env:
         player = state.players[state.current_player]
         opponent = state.players[state.opponent]
         self._resolve_battle(player, attacker_index, opponent, target_index)
+        if not state.done:
+            self._resolve_after_attack_triggers(state.current_player, state.opponent, attacker_index, {})
+
+    def _attack_creature(self, attacker_index: int, target_index: int) -> dict[str, Any]:
+        state = self._require_state()
+        attacker_player = state.current_player
+        defender_player = state.opponent
+        info: dict[str, Any] = {}
+        self._resolve_battle(state.players[attacker_player], attacker_index, state.players[defender_player], target_index)
+        if not state.done:
+            self._resolve_after_attack_triggers(attacker_player, defender_player, attacker_index, info)
+        return info
 
     def _declare_attack(self, attacker_index: int, target_type: str) -> dict[str, Any]:
         state = self._require_state()
@@ -389,14 +402,17 @@ class Env:
             defender,
             blocker_index,
         )
-        self._clear_pending_attack()
-        return {
+        info: dict[str, Any] = {
             "blocked": True,
             "blocker_index": blocker_index,
             "blocker_name": blocker_name,
             "blocker_power": blocker_power,
             "attacker_power": attacker_power,
         }
+        if not state.done:
+            self._resolve_after_attack_triggers(pending.attacker_player, pending.defender_player, pending.attacker_index, info)
+        self._clear_pending_attack()
+        return info
 
     def _resolve_decline_block(self) -> dict[str, Any]:
         state = self._require_state()
@@ -437,6 +453,8 @@ class Env:
                 info["shield_broken"] = True
                 info["broken_shield_card"] = broken_card.name
                 info.update(self._resolve_shield_trigger(broken_card, defender_player, attacker_player, attacker_index))
+            if not state.done:
+                self._resolve_after_attack_triggers(attacker_player, defender_player, attacker_index, info)
             return info
         if target_type == "PLAYER":
             state.winner = attacker_player
@@ -444,6 +462,76 @@ class Env:
             state.phase = Phase.GAME_OVER
             return info
         raise ValueError(f"Unsupported pending attack target type: {target_type}")
+
+    def _set_after_attack_defaults(self, info: dict[str, Any]) -> None:
+        info["after_attack_trigger_activated"] = False
+        info["gachinko_judge"] = False
+        info["gachinko_attacker_card"] = None
+        info["gachinko_defender_card"] = None
+        info["gachinko_attacker_cost"] = None
+        info["gachinko_defender_cost"] = None
+        info["gachinko_won"] = False
+        info["same_name_summoned"] = False
+        info["same_name_summoned_card"] = None
+
+    def _resolve_after_attack_triggers(
+        self,
+        attacker_player: int,
+        defender_player: int,
+        attacker_index: int | None,
+        info: dict[str, Any],
+    ) -> None:
+        self._set_after_attack_defaults(info)
+        state = self._require_state()
+        if state.done or attacker_index is None:
+            return
+        attacking_zone = state.players[attacker_player].battle_zone
+        if attacker_index < 0 or attacker_index >= len(attacking_zone):
+            return
+        attacker = attacking_zone[attacker_index]
+        if not _has_hachiko_after_attack_trigger(attacker.card):
+            return
+
+        attacker_state = state.players[attacker_player]
+        defender_state = state.players[defender_player]
+        info["after_attack_trigger_activated"] = True
+        info["gachinko_judge"] = True
+        if not attacker_state.deck or not defender_state.deck:
+            return
+
+        attacker_revealed = attacker_state.deck.pop()
+        defender_revealed = defender_state.deck.pop()
+        info["gachinko_attacker_card"] = attacker_revealed.name
+        info["gachinko_defender_card"] = defender_revealed.name
+        info["gachinko_attacker_cost"] = attacker_revealed.cost
+        info["gachinko_defender_cost"] = defender_revealed.cost
+        attacker_state.deck.insert(0, attacker_revealed)
+        defender_state.deck.insert(0, defender_revealed)
+
+        if attacker_revealed.cost <= 0 or defender_revealed.cost <= 0:
+            return
+
+        won = attacker_revealed.cost >= defender_revealed.cost
+        info["gachinko_won"] = won
+        if not won:
+            return
+
+        summoned = self._summon_same_name_from_deck(attacker_state, attacker.card.name, state.turn_number)
+        if summoned is not None:
+            info["same_name_summoned"] = True
+            info["same_name_summoned_card"] = summoned.name
+
+    def _summon_same_name_from_deck(self, player: PlayerState, name: str, turn_number: int) -> Card | None:
+        for index in range(len(player.deck) - 1, -1, -1):
+            card = player.deck[index]
+            if card.name != name or card.card_type != "CREATURE":
+                continue
+            summoned = player.deck.pop(index)
+            player.battle_zone.append(Creature(card=summoned, tapped=False, summoned_turn=turn_number))
+            self.random.shuffle(player.deck)
+            return summoned
+        self.random.shuffle(player.deck)
+        return None
 
     def _resolve_shield_trigger(
         self,
@@ -635,6 +723,7 @@ class Env:
             "card_type": card.card_type,
             "trigger_effect": card.trigger_effect,
             "spell_effect": card.spell_effect,
+            "ability_tags": list(card.ability_tags),
         }
 
     def _visible_trigger_count(self, player: PlayerState) -> int:
@@ -653,3 +742,11 @@ class Env:
         if self.state is None:
             raise RuntimeError("Call reset() before using the environment.")
         return self.state
+
+
+def _has_hachiko_after_attack_trigger(card: Card) -> bool:
+    tags = set(card.ability_tags)
+    return (
+        card.name == "特攻の忠剣ハチ公"
+        or {"GACHINKO_JUDGE", "SEARCH_SAME_NAME", "PUT_FROM_DECK_TO_BATTLE_ZONE"}.issubset(tags)
+    )

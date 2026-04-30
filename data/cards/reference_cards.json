@@ -263,61 +263,61 @@
     "card_id": "DM_REF_014",
     "name": "特攻の忠剣ハチ公",
     "name_kana": "",
-    "cost": null,
-    "civilizations": ["UNKNOWN"],
-    "card_type": "UNKNOWN",
-    "power": null,
-    "races": [],
-    "text": "",
+    "cost": 4,
+    "civilizations": ["FIRE"],
+    "card_type": "CREATURE",
+    "power": 3000,
+    "races": ["フレイム・コマンド", "フレイム・モンスター", "ハンター"],
+    "text": "同名4枚超過投入可。スピードアタッカーと攻撃終了時のガチンコ・ジャッジ同名展開を持つ。",
     "shield_trigger": false,
     "blocker": false,
     "spell_effect": null,
     "trigger_effect": null,
-    "ability_tags": ["SAME_NAME_MORE_THAN_4_ALLOWED"],
-    "implemented_tags": ["SAME_NAME_MORE_THAN_4_ALLOWED"],
+    "ability_tags": ["SAME_NAME_MORE_THAN_4_ALLOWED", "SPEED_ATTACKER", "GACHINKO_JUDGE", "SEARCH_SAME_NAME", "PUT_FROM_DECK_TO_BATTLE_ZONE"],
+    "implemented_tags": ["SAME_NAME_MORE_THAN_4_ALLOWED", "SPEED_ATTACKER", "GACHINKO_JUDGE", "SEARCH_SAME_NAME", "PUT_FROM_DECK_TO_BATTLE_ZONE"],
     "unsupported_tags": [],
     "regulation": {"usable": true, "hall_of_fame": "none"},
-    "notes": "needs_official_data; confirmed_same_name_more_than_4_allowed; source=ViewDeckSheet(2).pdf"
+    "notes": "official_static_fields_confirmed; confirmed_same_name_more_than_4_allowed; source=ViewDeckSheet(2).pdf; official=https://dm.takaratomy.co.jp/card/detail?id=dm23ex1-072"
   },
   {
     "card_id": "DM_REF_015",
     "name": "轟く革命 レッドギラゾーン",
     "name_kana": "",
-    "cost": null,
-    "civilizations": ["UNKNOWN"],
-    "card_type": "UNKNOWN",
-    "power": null,
-    "races": [],
-    "text": "",
+    "cost": 7,
+    "civilizations": ["WATER", "FIRE", "NATURE"],
+    "card_type": "CREATURE",
+    "power": 11000,
+    "races": ["ソニック・コマンド", "ドラゴン"],
+    "text": "革命チェンジ、スピードアタッカー、マッハファイター、W・ブレイカー系の攻撃的能力を持つ。",
     "shield_trigger": false,
     "blocker": false,
     "spell_effect": null,
     "trigger_effect": null,
-    "ability_tags": ["REVOLUTION_CHANGE", "SPEED_ATTACKER"],
+    "ability_tags": ["REVOLUTION_CHANGE", "SPEED_ATTACKER", "DOUBLE_BREAKER", "META_EFFECT"],
     "implemented_tags": [],
-    "unsupported_tags": ["REVOLUTION_CHANGE", "SPEED_ATTACKER"],
+    "unsupported_tags": ["REVOLUTION_CHANGE", "SPEED_ATTACKER", "DOUBLE_BREAKER", "META_EFFECT"],
     "regulation": {"usable": true, "hall_of_fame": "none"},
-    "notes": "needs_official_data; revolution change candidate; source=ViewDeckSheet(2).pdf"
+    "notes": "official_partial_from_card_search; revolution change candidate; exact_printing_url_pending; source=ViewDeckSheet(2).pdf"
   },
   {
     "card_id": "DM_REF_016",
     "name": "熱き侵略 レッドゾーンZ",
     "name_kana": "",
-    "cost": null,
-    "civilizations": ["UNKNOWN"],
-    "card_type": "UNKNOWN",
-    "power": null,
-    "races": [],
-    "text": "",
+    "cost": 6,
+    "civilizations": ["FIRE"],
+    "card_type": "CREATURE",
+    "power": 9000,
+    "races": ["ソニック・コマンド", "侵略者"],
+    "text": "進化、侵略、W・ブレイカー、シールド焼却系能力を持つ。",
     "shield_trigger": false,
     "blocker": false,
     "spell_effect": null,
     "trigger_effect": null,
-    "ability_tags": ["INVASION"],
+    "ability_tags": ["EVOLUTION", "INVASION", "DOUBLE_BREAKER", "META_EFFECT"],
     "implemented_tags": [],
-    "unsupported_tags": ["INVASION"],
+    "unsupported_tags": ["EVOLUTION", "INVASION", "DOUBLE_BREAKER", "META_EFFECT"],
     "regulation": {"usable": true, "hall_of_fame": "none"},
-    "notes": "needs_official_data; invasion candidate; source=ViewDeckSheet(2).pdf"
+    "notes": "official_partial_from_card_search; invasion candidate; exact_printing_url_pending; source=ViewDeckSheet(2).pdf"
   },
   {
     "card_id": "DM_REF_017",
@@ -337,7 +337,28 @@
     "implemented_tags": [],
     "unsupported_tags": ["TWINPACT"],
     "regulation": {"usable": true, "hall_of_fame": "none"},
-    "notes": "needs_official_data; twinpact; source=ViewDeckSheet(2).pdf"
+    "notes": "needs_official_data; twinpact; exact_printing_url_pending; source=ViewDeckSheet(2).pdf",
+    "is_twinpact": true,
+    "top_side": {
+      "name": "配球の超人",
+      "cost": null,
+      "civilizations": ["UNKNOWN"],
+      "card_type": "CREATURE",
+      "power": null,
+      "races": [],
+      "text": "",
+      "ability_tags": []
+    },
+    "bottom_side": {
+      "name": "記録的剛球",
+      "cost": null,
+      "civilizations": ["UNKNOWN"],
+      "card_type": "SPELL",
+      "power": null,
+      "races": [],
+      "text": "",
+      "ability_tags": []
+    }
   },
   {
     "card_id": "DM_REF_018",
@@ -357,7 +378,28 @@
     "implemented_tags": [],
     "unsupported_tags": ["TWINPACT", "DESTROY", "SHIELD_TRIGGER"],
     "regulation": {"usable": true, "hall_of_fame": "none"},
-    "notes": "needs_official_data; twinpact; tag_needs_confirmation; source=ViewDeckSheet(2).pdf"
+    "notes": "needs_official_data; twinpact; tag_needs_confirmation; exact_printing_url_pending; source=ViewDeckSheet(2).pdf",
+    "is_twinpact": true,
+    "top_side": {
+      "name": "D2V3 終断のレッドトロン",
+      "cost": null,
+      "civilizations": ["UNKNOWN"],
+      "card_type": "CREATURE",
+      "power": null,
+      "races": [],
+      "text": "",
+      "ability_tags": []
+    },
+    "bottom_side": {
+      "name": "フォビドゥン・ハンド",
+      "cost": null,
+      "civilizations": ["UNKNOWN"],
+      "card_type": "SPELL",
+      "power": null,
+      "races": [],
+      "text": "",
+      "ability_tags": ["SHIELD_TRIGGER", "DESTROY"]
+    }
   },
   {
     "card_id": "DM_REF_019",
@@ -377,7 +419,28 @@
     "implemented_tags": [],
     "unsupported_tags": ["TWINPACT", "LOCK", "ALTERNATE_WIN_CONDITION"],
     "regulation": {"usable": true, "hall_of_fame": "none"},
-    "notes": "needs_official_data; twinpact; special win condition candidate; source=ViewDeckSheet(2).pdf"
+    "notes": "official_partial_from_card_search; twinpact; special win condition candidate; exact_printing_url_pending; source=ViewDeckSheet(2).pdf",
+    "is_twinpact": true,
+    "top_side": {
+      "name": "Q.Q.QX.",
+      "cost": 4,
+      "civilizations": ["NATURE"],
+      "card_type": "CREATURE",
+      "power": 4000,
+      "races": ["グランセクト"],
+      "text": "相手の山札順操作を制限し、横向きカードを条件に特殊勝利へ向かう。",
+      "ability_tags": ["LOCK", "ALTERNATE_WIN_CONDITION"]
+    },
+    "bottom_side": {
+      "name": "終葬 5.S.D.",
+      "cost": 8,
+      "civilizations": ["NATURE"],
+      "card_type": "SPELL",
+      "power": null,
+      "races": [],
+      "text": "相手の山札へ横向きカードを作る特殊処理を行う。",
+      "ability_tags": ["LOCK", "ALTERNATE_WIN_CONDITION"]
+    }
   },
   {
     "card_id": "DM_REF_020",
@@ -397,18 +460,39 @@
     "implemented_tags": [],
     "unsupported_tags": ["TWINPACT", "G_STRIKE"],
     "regulation": {"usable": true, "hall_of_fame": "none"},
-    "notes": "needs_official_data; twinpact; tag_needs_confirmation; source=ViewDeckSheet(2).pdf"
+    "notes": "needs_official_data; twinpact; tag_needs_confirmation; exact_printing_url_pending; source=ViewDeckSheet(2).pdf",
+    "is_twinpact": true,
+    "top_side": {
+      "name": "綺羅王女プリン",
+      "cost": null,
+      "civilizations": ["UNKNOWN"],
+      "card_type": "CREATURE",
+      "power": null,
+      "races": [],
+      "text": "",
+      "ability_tags": ["G_STRIKE"]
+    },
+    "bottom_side": {
+      "name": "ハンター☆エイリアン仲良しビーム",
+      "cost": null,
+      "civilizations": ["UNKNOWN"],
+      "card_type": "SPELL",
+      "power": null,
+      "races": [],
+      "text": "",
+      "ability_tags": []
+    }
   },
   {
     "card_id": "DM_REF_021",
     "name": "フェアリー・ギフト",
     "name_kana": "",
-    "cost": null,
-    "civilizations": ["UNKNOWN"],
-    "card_type": "UNKNOWN",
+    "cost": 1,
+    "civilizations": ["NATURE"],
+    "card_type": "SPELL",
     "power": null,
     "races": [],
-    "text": "",
+    "text": "このターン次に召喚するクリーチャーのコストを軽減する。",
     "shield_trigger": false,
     "blocker": false,
     "spell_effect": null,
@@ -417,7 +501,7 @@
     "implemented_tags": [],
     "unsupported_tags": ["COST_REDUCTION"],
     "regulation": {"usable": true, "hall_of_fame": "none"},
-    "notes": "needs_official_data; source=ViewDeckSheet(2).pdf"
+    "notes": "official_static_fields_confirmed_from_card_search; exact_printing_url_pending; source=ViewDeckSheet(2).pdf"
   },
   {
     "card_id": "DM_REF_022",
@@ -444,11 +528,11 @@
     "name": "逆転の剣スカイソード",
     "name_kana": "",
     "cost": null,
-    "civilizations": ["UNKNOWN"],
-    "card_type": "UNKNOWN",
+    "civilizations": ["NATURE"],
+    "card_type": "CREATURE",
     "power": null,
     "races": [],
-    "text": "",
+    "text": "マナゾーンからクリーチャーを出す系統の能力を持つ。",
     "shield_trigger": false,
     "blocker": false,
     "spell_effect": null,
@@ -457,7 +541,7 @@
     "implemented_tags": [],
     "unsupported_tags": ["MANA_BOOST", "GAIN_SHIELD"],
     "regulation": {"usable": true, "hall_of_fame": "none"},
-    "notes": "needs_official_data; tag_needs_confirmation; source=ViewDeckSheet(2).pdf"
+    "notes": "official_partial_from_card_search; cost_power_races_need_official_confirmation; tag_needs_confirmation; source=ViewDeckSheet(2).pdf; official=https://dm.takaratomy.co.jp/card/detail?id=promoy25-035"
   },
   {
     "card_id": "DM_REF_024",
@@ -477,6 +561,27 @@
     "implemented_tags": [],
     "unsupported_tags": ["TWINPACT", "MANA_BOOST"],
     "regulation": {"usable": true, "hall_of_fame": "none"},
-    "notes": "needs_official_data; twinpact; tag_needs_confirmation; source=ViewDeckSheet(2).pdf"
+    "notes": "needs_official_data; twinpact; tag_needs_confirmation; exact_printing_url_pending; source=ViewDeckSheet(2).pdf",
+    "is_twinpact": true,
+    "top_side": {
+      "name": "青銅のバンビシカット",
+      "cost": null,
+      "civilizations": ["UNKNOWN"],
+      "card_type": "CREATURE",
+      "power": null,
+      "races": [],
+      "text": "",
+      "ability_tags": ["MANA_BOOST"]
+    },
+    "bottom_side": {
+      "name": "「我が力、しかと見よ！」",
+      "cost": null,
+      "civilizations": ["UNKNOWN"],
+      "card_type": "SPELL",
+      "power": null,
+      "races": [],
+      "text": "",
+      "ability_tags": []
+    }
   }
 ]

@@ -15,6 +15,7 @@ REFERENCE_DECK_01 = ROOT / "data/decks/reference_deck_01.json"
 REFERENCE_DECK_02 = ROOT / "data/decks/reference_deck_02.json"
 REFERENCE_RULESET = ROOT / "data/rulesets/reference_ruleset.json"
 REFERENCE_REPORT = ROOT / "REFERENCE_DECK_COMPATIBILITY.md"
+REFERENCE_DECK_02_AUDIT = ROOT / "REFERENCE_DECK_02_DATA_AUDIT.md"
 
 
 def test_reference_cards_load() -> None:
@@ -22,6 +23,9 @@ def test_reference_cards_load() -> None:
 
     assert len(database.cards) == 24
     assert database.get("DM_REF_014").name == "特攻の忠剣ハチ公"
+    assert database.get("DM_REF_019").is_twinpact is True
+    assert database.get("DM_REF_019").top_side is not None
+    assert database.get("DM_REF_019").bottom_side is not None
 
 
 def test_reference_decks_are_40_cards() -> None:
@@ -76,6 +80,35 @@ def test_deck_compatibility_reports_unknown_data_count() -> None:
     assert report["reliability"] == "Low"
 
 
+def test_deck_compatibility_reports_missing_fields_summary() -> None:
+    database = load_card_database(REFERENCE_CARDS)
+    deck = load_deck(REFERENCE_DECK_02, database)
+    ruleset = load_ruleset(REFERENCE_RULESET)
+    report = analyze_deck_compatibility(deck, database, ruleset=ruleset)
+
+    assert "missing_fields_summary" in report
+    assert "official_data_complete_count" in report
+    assert "twinpact_count" in report
+    assert report["twinpact_count"] == 20
+    assert report["twinpact_blocked_count"] == 20
+
+
+def test_twinpact_strict_runtime_conversion_is_blocked() -> None:
+    database = load_card_database(REFERENCE_CARDS)
+
+    with pytest.raises(ValueError, match="twinpact"):
+        database.to_runtime_card("DM_REF_019", strict=True)
+
+
+def test_non_twinpact_with_required_info_can_convert() -> None:
+    database = load_card_database(REFERENCE_CARDS)
+    runtime = database.to_runtime_card("DM_REF_021", strict=False)
+
+    assert runtime.name == "フェアリー・ギフト"
+    assert runtime.cost == 1
+    assert runtime.card_type == "SPELL"
+
+
 def test_allow_placeholder_false_blocks_unknown_reference_cards() -> None:
     database = load_card_database(REFERENCE_CARDS)
     deck = load_deck(REFERENCE_DECK_02, database)
@@ -104,6 +137,8 @@ def test_diagnose_reference_deck_02_runs(capsys) -> None:
     assert "hachiko_same_name_exception: True" in output
     assert "simulation_readiness: Blocked" in output
     assert "runtime_conversion: blocked" in output
+    assert "official_data_complete_count:" in output
+    assert "twinpact_blocked_count:" in output
 
 
 def test_reference_deck_compatibility_document_exists() -> None:
@@ -111,3 +146,10 @@ def test_reference_deck_compatibility_document_exists() -> None:
     text = REFERENCE_REPORT.read_text(encoding="utf-8")
     assert "Reference Deck 01" in text
     assert "Reference Deck 02" in text
+
+
+def test_reference_deck_02_data_audit_exists() -> None:
+    assert REFERENCE_DECK_02_AUDIT.exists()
+    text = REFERENCE_DECK_02_AUDIT.read_text(encoding="utf-8")
+    assert "Reference Deck 02" in text
+    assert "ツインパクト" in text

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from dm_ai_sim.card import Card
@@ -50,13 +50,21 @@ def deck_to_runtime_cards(
         if reasons and not allow_placeholder:
             raise ValueError(f"{entry.card_id} cannot be converted to runtime Card: {', '.join(reasons)}")
         runtime = card_database.to_runtime_card(entry.card_id, strict=strict)
-        cards.extend([runtime] * entry.count)
+        cards.extend(_runtime_copies(runtime, entry.count))
     return cards
+
+
+def _runtime_copies(card: Card, count: int) -> list[Card]:
+    if count == 1:
+        return [card]
+    return [replace(card, id=card.id * 100 + index) for index in range(count)]
 
 
 def runtime_blocked_reasons(card: CardData) -> list[str]:
     fields = set(unknown_data_fields(card))
     reasons: list[str] = []
+    if card.is_twinpact:
+        reasons.append("twinpact_unsupported")
     if "cost" in fields:
         reasons.append("missing_cost")
     if "civilizations" in fields:

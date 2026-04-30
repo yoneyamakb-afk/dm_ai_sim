@@ -63,11 +63,15 @@ Total: 40
 
 Current status:
 
-- 公式データ未確認カード: 40/40
+- ハチ公本体のruntime変換: 可能
+- runtime_convertible_count: 9
+- runtime_blocked_count: 31
 - 4枚超過カード: 《特攻の忠剣ハチ公》 x9
-- 《特攻の忠剣ハチ公》はユーザー補足により、4枚超過可能な確定仕様として扱う
+- 《特攻の忠剣ハチ公》は4枚超過可能な確定仕様として扱う
 - same-name exception: `DM_REF_014`
 - 構築上は `reference_ruleset.json` の `same_name_exception_card_ids` により合法
+- ハチ公の `SPEED_ATTACKER` と攻撃終了時の簡易ガチンコ・ジャッジ同名展開は実装済み
+- Reference Deck 02全体はまだBlocked
 - reliability: Low
 
 Major unsupported or unconfirmed tags:
@@ -118,13 +122,13 @@ Reference Deck 02 requires earlier support for deck construction exceptions, twi
 
 Current readiness: Blocked.
 
-《特攻の忠剣ハチ公》9枚投入は4枚超過違反ではなく、カード能力による合法構築として扱います。ただし、その能力自体のゲーム内挙動やカードテキスト処理は今後の個別能力実装対象です。
+《特攻の忠剣ハチ公》9枚投入は4枚超過違反ではなく、カード能力による合法構築として扱います。ハチ公本体はruntime変換可能で、`SPEED_ATTACKER`、簡易 `GACHINKO_JUDGE`、`SEARCH_SAME_NAME`、`PUT_FROM_DECK_TO_BATTLE_ZONE` による同名展開が動きます。
 
 Blocked reasons:
 
-- All 40 cards still have unknown official data fields.
-- Many cards are twinpact cards, and the runtime does not yet model upper/lower card faces.
-- Revolution change, invasion, speed attacker, G・ストライク, cost reduction, lock/meta effects, and alternate win conditions are not implemented.
+- Twinpact cards are 20 cards, and the runtime does not yet model upper/lower card faces.
+- Revolution change, invasion, G・ストライク, cost reduction, lock/meta effects, and alternate win conditions are not implemented.
+- Some cards still have unknown official data fields.
 - Placeholder conversion is intentionally blocked by default, because silently guessing card type, cost, civilization, or power would produce misleading results.
 
 Shortest route:
@@ -132,6 +136,6 @@ Shortest route:
 1. Complete official data for Reference Deck 02.
 2. Implement or approximate twinpact structure.
 3. Keep Hachiko's same-name exception as a ruleset feature.
-4. Implement Red Girazone / Red Zone Z movement mechanics: revolution change and invasion.
-5. Implement G・ストライク and speed attacker.
+4. Implement `TWINPACT` and `G_STRIKE`.
+5. Implement Red Girazone / Red Zone Z movement mechanics: revolution change and invasion.
 6. Add card-specific handlers for Q.Q.QX. and key meta/lock effects.

@@ -7,7 +7,8 @@ from dm_ai_sim.state import GameState, Phase, PlayerState
 
 def can_attack(creature_index: int, state: GameState) -> bool:
     creature = state.players[state.current_player].battle_zone[creature_index]
-    return not creature.tapped and creature.summoned_turn < state.turn_number
+    has_speed_attacker = "SPEED_ATTACKER" in creature.card.ability_tags
+    return not creature.tapped and (has_speed_attacker or creature.summoned_turn < state.turn_number)
 
 
 def spell_effect(card) -> str | None:

@@ -1,0 +1,9 @@
+{
+  "name": "Hachiko Runtime Test Deck",
+  "format": "runtime-test",
+  "purpose": "Ability verification only; not a tournament or competitive evaluation deck.",
+  "cards": [
+    {"card_id": "DM_REF_014", "count": 20},
+    {"card_id": "RUNTIME_FIRE_VANILLA", "count": 20}
+  ]
+}

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
-from dm_ai_sim.card_database import CardDatabase, unknown_data_fields
+from dm_ai_sim.card_database import CardDatabase, missing_official_data_fields, unknown_data_fields
 from dm_ai_sim.deck_loader import DeckList, runtime_blocked_reasons
 from dm_ai_sim.ruleset import Ruleset, validate_deck_against_ruleset
 
@@ -12,12 +12,14 @@ HIGH_PRIORITY_TAGS = {
     "DOUBLE_BREAKER",
     "SPEED_ATTACKER",
     "G_STRIKE",
+    "SHIELD_TRIGGER",
     "TWINPACT",
     "REVOLUTION_CHANGE",
     "INVASION",
     "EVOLUTION",
     "ALTERNATE_WIN_CONDITION",
     "SAME_NAME_MORE_THAN_4_ALLOWED",
+    "COST_REDUCTION",
 }
 
 
@@ -38,11 +40,26 @@ def analyze_deck_compatibility(
     runtime_convertible_count = 0
     runtime_blocked_count = 0
     blocked_reasons: Counter[str] = Counter()
+    official_data_complete_count = 0
+    missing_official_data_count = 0
+    missing_fields_summary: Counter[str] = Counter()
+    twinpact_count = 0
+    twinpact_blocked_count = 0
 
     for entry in decklist.cards:
         card = card_database.get(entry.card_id)
         unknown_fields = unknown_data_fields(card)
+        missing_fields = missing_official_data_fields(card)
         runtime_reasons = runtime_blocked_reasons(card)
+        if card.is_twinpact:
+            twinpact_count += entry.count
+            if "twinpact_unsupported" in runtime_reasons:
+                twinpact_blocked_count += entry.count
+        if missing_fields:
+            missing_official_data_count += entry.count
+            missing_fields_summary.update({field: entry.count for field in missing_fields})
+        else:
+            official_data_complete_count += entry.count
         if runtime_reasons:
             runtime_blocked_count += entry.count
             blocked_reasons.update({reason: entry.count for reason in runtime_reasons})
@@ -91,7 +108,7 @@ def analyze_deck_compatibility(
     high_priority_missing_tags = sorted(tag for tag in unsupported_tags if tag in HIGH_PRIORITY_TAGS)
     if runtime_convertible_count == total and not high_priority_missing_tags and construction_legal:
         simulation_readiness = "Ready"
-    elif runtime_convertible_count > 0 and construction_legal:
+    elif runtime_convertible_count > 0 and not high_priority_missing_tags and construction_legal:
         simulation_readiness = "Partial"
     else:
         simulation_readiness = "Blocked"
@@ -103,6 +120,11 @@ def analyze_deck_compatibility(
         "partially_supported_count": partially_supported_count,
         "unsupported_count": unsupported_count,
         "unknown_data_count": unknown_data_count,
+        "official_data_complete_count": official_data_complete_count,
+        "missing_official_data_count": missing_official_data_count,
+        "twinpact_count": twinpact_count,
+        "twinpact_blocked_count": twinpact_blocked_count,
+        "missing_fields_summary": dict(sorted(missing_fields_summary.items())),
         "unsupported_cards": unsupported_cards,
         "unknown_cards": unknown_cards,
         "unsupported_tags_summary": dict(sorted(unsupported_tags.items())),
