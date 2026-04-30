@@ -1,0 +1,10 @@
+{
+  "name": "Twinpact Runtime Test Deck",
+  "format": "runtime-test",
+  "purpose": "Twinpact behavior verification only; not a tournament or competitive evaluation deck.",
+  "cards": [
+    {"card_id": "DM_REF_017", "count": 20},
+    {"card_id": "DM_REF_018", "count": 10},
+    {"card_id": "DM_REF_014", "count": 10}
+  ]
+}

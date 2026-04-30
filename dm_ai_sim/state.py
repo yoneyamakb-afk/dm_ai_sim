@@ -23,6 +23,9 @@ class Creature:
     card: Card
     tapped: bool = False
     summoned_turn: int = 0
+    original_card: Card | None = None
+    cannot_attack_this_turn: bool = False
+    evolution_sources: list[Card] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -64,6 +67,8 @@ class GameState:
     last_spell_cast: bool = False
     last_spell_effect: str | None = None
     last_spell_player: int | None = None
+    revolution_changed_this_turn: bool = False
+    invaded_this_turn: bool = False
 
     @property
     def opponent(self) -> int:

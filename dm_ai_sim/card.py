@@ -11,6 +11,27 @@ VALID_CIVILIZATIONS = ("LIGHT", "WATER", "DARKNESS", "FIRE", "NATURE", "COLORLES
 
 
 @dataclass(frozen=True, slots=True)
+class CardSide:
+    name: str
+    cost: int | None
+    civilizations: tuple[str, ...]
+    card_type: str
+    power: int | None
+    races: tuple[str, ...] = ()
+    text: str = ""
+    ability_tags: tuple[str, ...] = ()
+    spell_effect: str | None = None
+    trigger_effect: TriggerEffect | None = None
+    shield_trigger: bool = False
+    blocker: bool = False
+
+    def __post_init__(self) -> None:
+        normalized = tuple(dict.fromkeys(_normalize_civilization(value) for value in self.civilizations))
+        object.__setattr__(self, "civilizations", normalized or ("COLORLESS",))
+        object.__setattr__(self, "ability_tags", tuple(dict.fromkeys(str(tag) for tag in self.ability_tags)))
+
+
+@dataclass(frozen=True, slots=True)
 class Card:
     id: int
     name: str
@@ -24,6 +45,10 @@ class Card:
     trigger_effect: TriggerEffect | None = None
     spell_effect: str | None = None
     ability_tags: tuple[str, ...] = ()
+    breaker_count: int = 1
+    is_twinpact: bool = False
+    top_side: CardSide | None = None
+    bottom_side: CardSide | None = None
 
     def __post_init__(self) -> None:
         civilizations = self.civilizations
@@ -37,6 +62,29 @@ class Card:
         object.__setattr__(self, "civilizations", normalized)
         object.__setattr__(self, "civilization", normalized[0])
         object.__setattr__(self, "ability_tags", tuple(dict.fromkeys(str(tag) for tag in self.ability_tags)))
+        if self.breaker_count < 1:
+            object.__setattr__(self, "breaker_count", 1)
+
+    def side_as_card(self, side: str) -> "Card":
+        card_side = self.top_side if side == "top" else self.bottom_side if side == "bottom" else None
+        if card_side is None:
+            raise ValueError(f"{self.name} does not have side: {side}")
+        if card_side.cost is None or card_side.power is None and card_side.card_type == "CREATURE":
+            raise ValueError(f"{self.name} side {side} has incomplete runtime data")
+        return Card(
+            id=self.id,
+            name=card_side.name,
+            cost=card_side.cost,
+            power=card_side.power or 0,
+            civilizations=card_side.civilizations,
+            blocker=card_side.blocker,
+            shield_trigger=card_side.shield_trigger,
+            card_type=card_side.card_type if card_side.card_type in {"CREATURE", "SPELL"} else "CREATURE",  # type: ignore[arg-type]
+            trigger_effect=card_side.trigger_effect,
+            spell_effect=card_side.spell_effect,
+            ability_tags=card_side.ability_tags,
+            breaker_count=2 if "DOUBLE_BREAKER" in card_side.ability_tags else 1,
+        )
 
 
 def make_vanilla_deck(size: int = 40, base_id: int = 0) -> list[Card]:

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from dm_ai_sim.card import Card
+from dm_ai_sim.card import Card, CardSide
 from dm_ai_sim.card_tags import KNOWN_ABILITY_TAGS
 
 
@@ -20,6 +20,10 @@ class TwinpactSideData:
     races: tuple[str, ...] = ()
     text: str = ""
     ability_tags: tuple[str, ...] = ()
+    spell_effect: str | None = None
+    trigger_effect: str | None = None
+    shield_trigger: bool = False
+    blocker: bool = False
 
     @classmethod
     def from_mapping(cls, raw: dict[str, Any] | None) -> "TwinpactSideData | None":
@@ -38,6 +42,10 @@ class TwinpactSideData:
             races=tuple(str(value) for value in raw.get("races", ())),
             text=str(raw.get("text", "")),
             ability_tags=ability_tags,
+            spell_effect=raw.get("spell_effect"),
+            trigger_effect=raw.get("trigger_effect"),
+            shield_trigger=bool(raw.get("shield_trigger", False)),
+            blocker=bool(raw.get("blocker", False)),
         )
 
 
@@ -119,11 +127,7 @@ class CardDatabase:
     def to_runtime_card(self, card_id: str, strict: bool = False) -> Card:
         card = self.get(card_id)
         if card.is_twinpact:
-            message = f"{card.card_id} is a twinpact card and runtime twinpact conversion is not supported"
-            if strict:
-                raise ValueError(message)
-            warnings.warn(message, RuntimeWarning, stacklevel=2)
-            raise ValueError(message)
+            return _twinpact_runtime_card(card, strict=strict)
         unknown_fields = unknown_data_fields(card)
         if card.unsupported_tags or unknown_fields:
             parts = []
@@ -147,6 +151,7 @@ class CardDatabase:
             trigger_effect=card.trigger_effect,  # type: ignore[arg-type]
             spell_effect=card.spell_effect,
             ability_tags=card.ability_tags,
+            breaker_count=2 if "DOUBLE_BREAKER" in card.ability_tags else 1,
         )
 
 
@@ -176,6 +181,17 @@ def unknown_data_fields(card: CardData) -> tuple[str, ...]:
     if card.card_type not in {"CREATURE", "SPELL"}:
         fields.append("card_type")
     return tuple(fields)
+
+
+def twinpact_runtime_blocked_reasons(card: CardData) -> tuple[str, ...]:
+    if not card.is_twinpact:
+        return ()
+    reasons: list[str] = []
+    if not _side_runtime_ready(card.top_side, expected_type="CREATURE"):
+        reasons.append("top_side_incomplete")
+    if not _side_runtime_ready(card.bottom_side, expected_type="SPELL"):
+        reasons.append("bottom_side_incomplete")
+    return tuple(reasons)
 
 
 def missing_official_data_fields(card: CardData) -> tuple[str, ...]:
@@ -215,3 +231,80 @@ def _extend_missing_side_fields(fields: list[str], prefix: str, side: TwinpactSi
 
 def _stable_runtime_id(card_id: str) -> int:
     return sum((index + 1) * ord(char) for index, char in enumerate(card_id)) % 1_000_000
+
+
+def _twinpact_runtime_card(card: CardData, strict: bool) -> Card:
+    reasons = twinpact_runtime_blocked_reasons(card)
+    if reasons:
+        message = f"{card.card_id} has incomplete twinpact runtime data: {', '.join(reasons)}"
+        if strict:
+            raise ValueError(message)
+        warnings.warn(message, RuntimeWarning, stacklevel=2)
+        raise ValueError(message)
+    assert card.top_side is not None
+    assert card.bottom_side is not None
+    unsupported = tuple(tag for tag in card.unsupported_tags if tag != "TWINPACT")
+    if unsupported:
+        message = f"{card.card_id} has unsupported tags: {', '.join(unsupported)}"
+        if strict:
+            raise ValueError(message)
+        warnings.warn(message, RuntimeWarning, stacklevel=2)
+    return Card(
+        id=_stable_runtime_id(card.card_id),
+        name=card.name,
+        cost=card.cost or min(card.top_side.cost or 0, card.bottom_side.cost or 0),
+        power=card.power or card.top_side.power or 0,
+        civilizations=_twinpact_civilizations(card),
+        blocker=card.blocker,
+        shield_trigger=card.shield_trigger or card.top_side.shield_trigger or card.bottom_side.shield_trigger,
+        card_type="CREATURE",
+        trigger_effect=card.trigger_effect,
+        spell_effect=card.spell_effect,
+        ability_tags=card.ability_tags,
+        breaker_count=2 if "DOUBLE_BREAKER" in card.ability_tags else 1,
+        is_twinpact=True,
+        top_side=_runtime_side(card.top_side),
+        bottom_side=_runtime_side(card.bottom_side),
+    )
+
+
+def _side_runtime_ready(side: TwinpactSideData | None, expected_type: str) -> bool:
+    if side is None:
+        return False
+    if side.card_type != expected_type:
+        return False
+    if side.cost is None:
+        return False
+    if not side.civilizations or "UNKNOWN" in side.civilizations:
+        return False
+    if side.card_type == "CREATURE" and side.power is None:
+        return False
+    return True
+
+
+def _runtime_side(side: TwinpactSideData) -> CardSide:
+    return CardSide(
+        name=side.name,
+        cost=side.cost,
+        civilizations=side.civilizations,
+        card_type=side.card_type,
+        power=side.power,
+        races=side.races,
+        text=side.text,
+        ability_tags=side.ability_tags,
+        spell_effect=side.spell_effect,
+        trigger_effect=side.trigger_effect,  # type: ignore[arg-type]
+        shield_trigger=side.shield_trigger,
+        blocker=side.blocker,
+    )
+
+
+def _twinpact_civilizations(card: CardData) -> tuple[str, ...]:
+    values: list[str] = []
+    for side in (card.top_side, card.bottom_side):
+        if side is None:
+            continue
+        values.extend(civ for civ in side.civilizations if civ != "UNKNOWN")
+    if not values:
+        values.extend(civ for civ in card.civilizations if civ != "UNKNOWN")
+    return tuple(dict.fromkeys(values)) or ("COLORLESS",)

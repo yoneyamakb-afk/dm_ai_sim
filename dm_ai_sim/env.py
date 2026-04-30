@@ -6,6 +6,7 @@ from typing import Any
 
 from dm_ai_sim.action_encoder import decode_action, encode_action, legal_action_mask
 from dm_ai_sim.actions import Action, ActionType
+from dm_ai_sim.ability_handlers.registry import get_default_ability_registry
 from dm_ai_sim.card import Card, make_vanilla_deck
 from dm_ai_sim.mana import (
     civilization_counts,
@@ -37,6 +38,7 @@ class Env:
     ) -> None:
         self.config = config or EnvConfig()
         self.random = random.Random(self.config.seed)
+        self.ability_registry = get_default_ability_registry()
         self.initial_decks = [
             list(deck0) if deck0 is not None else make_vanilla_deck(base_id=0),
             list(deck1) if deck1 is not None else make_vanilla_deck(base_id=1000),
@@ -80,6 +82,22 @@ class Env:
         info["charged_card"] = None
         info["charged_card_civilizations"] = None
         info["charged_card_enters_tapped"] = False
+        info["g_strike_activated"] = False
+        info["g_strike_card_name"] = None
+        info["g_strike_target_index"] = None
+        info["g_strike_target_name"] = None
+        info["g_strike_prevented_attack"] = False
+        info["g_strike_source_zone"] = None
+        info["revolution_change"] = False
+        info["revolution_change_card_name"] = None
+        info["revolution_change_returned_card_name"] = None
+        info["revolution_change_from_hand_index"] = None
+        info["revolution_change_attacker_index"] = None
+        info["invasion"] = False
+        info["invasion_card_name"] = None
+        info["invasion_source_card_name"] = None
+        info["invasion_from_hand_index"] = None
+        info["invasion_attacker_index"] = None
         self._set_after_attack_defaults(info)
 
         if action.type == ActionType.CHARGE_MANA:
@@ -99,13 +117,26 @@ class Env:
             assert action.card_index is not None
             player = state.players[acting_player]
             card = player.hand[action.card_index]
-            tap_mana_for_card(player, card)
-            player.hand.pop(action.card_index)
-            player.battle_zone.append(Creature(card=card, summoned_turn=state.turn_number))
+            summon_card = card.side_as_card(action.side) if action.side == "top" else card
+            tap_mana_for_card(player, summon_card)
+            original = player.hand.pop(action.card_index)
+            player.battle_zone.append(
+                Creature(card=summon_card, summoned_turn=state.turn_number, original_card=original if original.is_twinpact else None)
+            )
+            info["side_used"] = action.side
+            info["summoned_card"] = summon_card.name
 
         elif action.type == ActionType.CAST_SPELL:
             self._raise_if_pending(action)
-            info.update(self._cast_spell(action.hand_index if action.hand_index is not None else action.card_index, action.target_index))
+            info.update(self._cast_spell(action.hand_index if action.hand_index is not None else action.card_index, action.target_index, action.side))
+
+        elif action.type == ActionType.REVOLUTION_CHANGE:
+            self._raise_if_pending(action)
+            info.update(self._resolve_revolution_change(action.hand_index if action.hand_index is not None else action.card_index, action.attacker_index))
+
+        elif action.type == ActionType.INVASION:
+            self._raise_if_pending(action)
+            info.update(self._resolve_invasion(action.hand_index if action.hand_index is not None else action.card_index, action.attacker_index))
 
         elif action.type == ActionType.END_MAIN:
             self._raise_if_pending(action)
@@ -164,9 +195,10 @@ class Env:
         return action_ids
 
     def step_action_id(self, action_id: int) -> tuple[dict[str, Any], float, bool, dict[str, Any]]:
-        action = decode_action(action_id)
         if action_id not in self.legal_action_ids():
             raise ValueError(f"Illegal action_id: {action_id}")
+        decoded = decode_action(action_id)
+        action = next((candidate for candidate in self.legal_actions() if encode_action(candidate) == action_id), decoded)
         return self.step(action)
 
     def get_observation(
@@ -215,7 +247,7 @@ class Env:
                 player.deck,
                 player.hand,
                 [mana.card for mana in player.mana],
-                [creature.card for creature in player.battle_zone],
+                [card for creature in player.battle_zone for card in _creature_zone_cards(creature)],
                 player.graveyard,
                 player.shields,
             ]
@@ -247,11 +279,16 @@ class Env:
         player = state.players[state.current_player]
         state.phase = Phase.MAIN
         state.pending_attack = None
+        state.revolution_changed_this_turn = False
+        state.invaded_this_turn = False
         player.charged_mana_this_turn = False
         for mana_card in player.mana:
             mana_card.tapped = False
         for creature in player.battle_zone:
             creature.tapped = False
+        for each_player in state.players:
+            for creature in each_player.battle_zone:
+                creature.cannot_attack_this_turn = False
 
         if draw_card and not self._draw_card(player):
             state.winner = state.opponent
@@ -271,7 +308,7 @@ class Env:
         state.first_turn = False
         self._start_turn(draw_card=True)
 
-    def _cast_spell(self, hand_index: int | None, target_index: int | None) -> dict[str, Any]:
+    def _cast_spell(self, hand_index: int | None, target_index: int | None, side: str | None = None) -> dict[str, Any]:
         state = self._require_state()
         if hand_index is None:
             raise ValueError("CAST_SPELL requires hand_index.")
@@ -280,9 +317,10 @@ class Env:
         if hand_index < 0 or hand_index >= len(player.hand):
             raise ValueError(f"Invalid spell hand index: {hand_index}")
         card = player.hand[hand_index]
-        if card.card_type != "SPELL":
+        spell_card = card.side_as_card(side) if side == "bottom" else card
+        if spell_card.card_type != "SPELL":
             raise ValueError(f"Card is not a spell: {card.name}")
-        effect = card.spell_effect or card.trigger_effect
+        effect = spell_card.spell_effect or spell_card.trigger_effect
         if effect is None:
             raise ValueError(f"Spell has no effect: {card.name}")
         if effect == "DESTROY_TARGET" and target_index is None:
@@ -292,39 +330,39 @@ class Env:
         if effect == "DESTROY_TARGET" and (target_index < 0 or target_index >= len(opponent.battle_zone)):
             raise ValueError(f"Invalid spell target index: {target_index}")
 
-        spell_card = player.hand[hand_index]
         tap_mana_for_card(player, spell_card)
-        player.hand.pop(hand_index)
+        original_card = player.hand.pop(hand_index)
         info: dict[str, Any] = {
             "spell_cast": True,
             "spell_name": spell_card.name,
             "spell_effect": effect,
             "spell_target_index": target_index,
+            "side_used": side,
         }
         self._set_last_spell(effect, state.current_player)
 
         if effect == "DRAW_1":
-            player.graveyard.append(spell_card)
+            player.graveyard.append(original_card)
             self._draw_card(player)
             return info
         if effect == "DESTROY_TARGET":
             assert target_index is not None
             destroyed = opponent.battle_zone.pop(target_index)
-            opponent.graveyard.append(destroyed.card)
-            player.graveyard.append(spell_card)
+            opponent.graveyard.extend(_creature_zone_cards(destroyed))
+            player.graveyard.append(original_card)
             return info
         if effect == "GAIN_SHIELD":
-            player.graveyard.append(spell_card)
+            player.graveyard.append(original_card)
             if player.deck:
                 player.shields.append(player.deck.pop())
             return info
         if effect == "MANA_BOOST":
-            player.graveyard.append(spell_card)
+            player.graveyard.append(original_card)
             if player.deck:
                 player.mana.append(ManaCard(card=player.deck.pop(), tapped=False))
             return info
 
-        player.graveyard.append(spell_card)
+        player.graveyard.append(original_card)
         return info
 
     def _set_last_spell(self, effect: str, player_id: int) -> None:
@@ -332,6 +370,74 @@ class Env:
         state.last_spell_cast = True
         state.last_spell_effect = effect
         state.last_spell_player = player_id
+
+    def _resolve_revolution_change(self, hand_index: int | None, attacker_index: int | None) -> dict[str, Any]:
+        state = self._require_state()
+        if state.phase != Phase.ATTACK:
+            raise ValueError("REVOLUTION_CHANGE is only legal during attack phase.")
+        if hand_index is None or attacker_index is None:
+            raise ValueError("REVOLUTION_CHANGE requires hand_index and attacker_index.")
+        player = state.players[state.current_player]
+        if hand_index < 0 or hand_index >= len(player.hand):
+            raise ValueError(f"Invalid revolution change hand index: {hand_index}")
+        if attacker_index < 0 or attacker_index >= len(player.battle_zone):
+            raise ValueError(f"Invalid revolution change attacker index: {attacker_index}")
+        change_card = player.hand[hand_index]
+        if change_card.card_type != "CREATURE" or "REVOLUTION_CHANGE" not in change_card.ability_tags:
+            raise ValueError(f"Card cannot revolution change: {change_card.name}")
+        if not compute_legal_actions(state) or Action(ActionType.REVOLUTION_CHANGE, hand_index=hand_index, attacker_index=attacker_index) not in compute_legal_actions(state):
+            raise ValueError("REVOLUTION_CHANGE target is not legal.")
+
+        returned = player.battle_zone.pop(attacker_index)
+        returned_cards = _creature_zone_cards(returned)
+        player.hand.extend(returned_cards)
+        change_card = player.hand.pop(hand_index)
+        player.battle_zone.append(Creature(card=change_card, tapped=False, summoned_turn=state.turn_number))
+        state.revolution_changed_this_turn = True
+        return {
+            "revolution_change": True,
+            "revolution_change_card_name": change_card.name,
+            "revolution_change_returned_card_name": returned_cards[0].name,
+            "revolution_change_from_hand_index": hand_index,
+            "revolution_change_attacker_index": attacker_index,
+        }
+
+    def _resolve_invasion(self, hand_index: int | None, attacker_index: int | None) -> dict[str, Any]:
+        state = self._require_state()
+        if state.phase != Phase.ATTACK:
+            raise ValueError("INVASION is only legal during attack phase.")
+        if hand_index is None or attacker_index is None:
+            raise ValueError("INVASION requires hand_index and attacker_index.")
+        player = state.players[state.current_player]
+        if hand_index < 0 or hand_index >= len(player.hand):
+            raise ValueError(f"Invalid invasion hand index: {hand_index}")
+        if attacker_index < 0 or attacker_index >= len(player.battle_zone):
+            raise ValueError(f"Invalid invasion attacker index: {attacker_index}")
+        invasion_card = player.hand[hand_index]
+        if invasion_card.card_type != "CREATURE" or "INVASION" not in invasion_card.ability_tags:
+            raise ValueError(f"Card cannot invade: {invasion_card.name}")
+        if Action(ActionType.INVASION, hand_index=hand_index, attacker_index=attacker_index) not in compute_legal_actions(state):
+            raise ValueError("INVASION target is not legal.")
+
+        source = player.battle_zone.pop(attacker_index)
+        source_cards = _creature_zone_cards(source)
+        invasion_card = player.hand.pop(hand_index)
+        player.battle_zone.append(
+            Creature(
+                card=invasion_card,
+                tapped=False,
+                summoned_turn=state.turn_number,
+                evolution_sources=source_cards,
+            )
+        )
+        state.invaded_this_turn = True
+        return {
+            "invasion": True,
+            "invasion_card_name": invasion_card.name,
+            "invasion_source_card_name": source_cards[0].name,
+            "invasion_from_hand_index": hand_index,
+            "invasion_attacker_index": attacker_index,
+        }
 
     def _battle_creatures(self, attacker_index: int, target_index: int) -> None:
         state = self._require_state()
@@ -473,6 +579,10 @@ class Env:
         info["gachinko_won"] = False
         info["same_name_summoned"] = False
         info["same_name_summoned_card"] = None
+        info["gachinko_revealed_twinpact"] = False
+        info["gachinko_revealed_card_name"] = None
+        info["gachinko_judge_cost_source"] = None
+        info["gachinko_prin_ruling_applicable"] = False
 
     def _resolve_after_attack_triggers(
         self,
@@ -495,33 +605,68 @@ class Env:
         attacker_state = state.players[attacker_player]
         defender_state = state.players[defender_player]
         info["after_attack_trigger_activated"] = True
-        info["gachinko_judge"] = True
-        if not attacker_state.deck or not defender_state.deck:
+        if not self._resolve_gachinko_judge(attacker_player, defender_player, info):
             return
 
-        attacker_revealed = attacker_state.deck.pop()
-        defender_revealed = defender_state.deck.pop()
-        info["gachinko_attacker_card"] = attacker_revealed.name
-        info["gachinko_defender_card"] = defender_revealed.name
-        info["gachinko_attacker_cost"] = attacker_revealed.cost
-        info["gachinko_defender_cost"] = defender_revealed.cost
-        attacker_state.deck.insert(0, attacker_revealed)
-        defender_state.deck.insert(0, defender_revealed)
-
-        if attacker_revealed.cost <= 0 or defender_revealed.cost <= 0:
-            return
-
-        won = attacker_revealed.cost >= defender_revealed.cost
-        info["gachinko_won"] = won
-        if not won:
-            return
-
-        summoned = self._summon_same_name_from_deck(attacker_state, attacker.card.name, state.turn_number)
+        summoned = self._resolve_hachiko_same_name_search(attacker_state, attacker.card.name, state.turn_number)
         if summoned is not None:
             info["same_name_summoned"] = True
             info["same_name_summoned_card"] = summoned.name
 
-    def _summon_same_name_from_deck(self, player: PlayerState, name: str, turn_number: int) -> Card | None:
+    def _resolve_gachinko_judge(self, attacker_player: int, defender_player: int, info: dict[str, Any]) -> bool:
+        state = self._require_state()
+        attacker_state = state.players[attacker_player]
+        defender_state = state.players[defender_player]
+        info["gachinko_judge"] = True
+        if not attacker_state.deck or not defender_state.deck:
+            return False
+
+        attacker_revealed = attacker_state.deck.pop()
+        defender_revealed = defender_state.deck.pop()
+        attacker_cost, attacker_source = self._get_gachinko_judge_cost(attacker_revealed)
+        defender_cost, defender_source = self._get_gachinko_judge_cost(defender_revealed)
+        info["gachinko_attacker_card"] = attacker_revealed.name
+        info["gachinko_defender_card"] = defender_revealed.name
+        info["gachinko_attacker_cost"] = attacker_cost
+        info["gachinko_defender_cost"] = defender_cost
+        self._record_gachinko_revealed_card(attacker_revealed, attacker_source, info)
+        self._record_gachinko_revealed_card(defender_revealed, defender_source, info)
+        attacker_state.deck.insert(0, attacker_revealed)
+        defender_state.deck.insert(0, defender_revealed)
+
+        if attacker_cost is None or defender_cost is None:
+            return False
+        won = attacker_cost >= defender_cost
+        info["gachinko_won"] = won
+        return won
+
+    def _get_gachinko_judge_cost(self, card: Card) -> tuple[int | None, str]:
+        if self._is_prin_twinpact(card) and card.bottom_side is not None:
+            return card.bottom_side.cost, "bottom_spell_cost"
+        if card.is_twinpact:
+            costs = [
+                (side.cost, "top_creature_cost" if name == "top" else "bottom_spell_cost")
+                for name, side in (("top", card.top_side), ("bottom", card.bottom_side))
+                if side is not None and side.cost is not None
+            ]
+            if costs:
+                return max(costs, key=lambda item: item[0] or 0)
+            return None, "unknown_twinpact_cost"
+        return card.cost if card.cost > 0 else None, "card_cost"
+
+    def _record_gachinko_revealed_card(self, card: Card, source: str, info: dict[str, Any]) -> None:
+        if not card.is_twinpact:
+            return
+        info["gachinko_revealed_twinpact"] = True
+        info["gachinko_revealed_card_name"] = card.name
+        info["gachinko_judge_cost_source"] = source
+        if self._is_prin_twinpact(card):
+            info["gachinko_prin_ruling_applicable"] = True
+
+    def _is_prin_twinpact(self, card: Card) -> bool:
+        return card.name == "綺羅王女プリン / ハンター☆エイリアン仲良しビーム"
+
+    def _resolve_hachiko_same_name_search(self, player: PlayerState, name: str, turn_number: int) -> Card | None:
         for index in range(len(player.deck) - 1, -1, -1):
             card = player.deck[index]
             if card.name != name or card.card_type != "CREATURE":
@@ -546,12 +691,21 @@ class Env:
             "trigger_activated": False,
             "trigger_effect": None,
             "attacker_destroyed_by_trigger": False,
+            "g_strike_activated": False,
+            "g_strike_card_name": None,
+            "g_strike_target_index": None,
+            "g_strike_target_name": None,
+            "g_strike_prevented_attack": False,
+            "g_strike_source_zone": None,
         }
-        if not card.shield_trigger or card.trigger_effect is None:
+        trigger_card = card.side_as_card("bottom") if _can_use_twinpact_shield_trigger(card) else card
+        if not trigger_card.shield_trigger or trigger_card.trigger_effect is None:
+            if _has_g_strike(card):
+                info.update(self._resolve_g_strike(card, defender_player, attacker_player))
             defender.hand.append(card)
             return info
 
-        effect = card.trigger_effect
+        effect = trigger_card.trigger_effect
         info["trigger_activated"] = True
         info["trigger_effect"] = effect
         state.last_trigger_activated = True
@@ -568,12 +722,12 @@ class Env:
             attacker_zone = state.players[attacker_player].battle_zone
             if attacker_index is not None and attacker_index < len(attacker_zone):
                 destroyed = attacker_zone.pop(attacker_index)
-                state.players[attacker_player].graveyard.append(destroyed.card)
+                state.players[attacker_player].graveyard.extend(_creature_zone_cards(destroyed))
                 info["attacker_destroyed_by_trigger"] = True
             return info
 
-        if effect == "SUMMON_SELF" and card.card_type == "CREATURE":
-            defender.battle_zone.append(Creature(card=card, summoned_turn=state.turn_number))
+        if effect == "SUMMON_SELF" and trigger_card.card_type == "CREATURE":
+            defender.battle_zone.append(Creature(card=trigger_card, summoned_turn=state.turn_number, original_card=card if card.is_twinpact else None))
             return info
 
         if effect == "GAIN_SHIELD":
@@ -587,6 +741,26 @@ class Env:
         info["trigger_effect"] = None
         self._clear_last_trigger()
         return info
+
+    def _resolve_g_strike(self, card: Card, defender_player: int, attacker_player: int) -> dict[str, Any]:
+        info: dict[str, Any] = {
+            "g_strike_activated": True,
+            "g_strike_card_name": card.name,
+            "g_strike_target_index": None,
+            "g_strike_target_name": None,
+            "g_strike_prevented_attack": False,
+            "g_strike_source_zone": "shield",
+        }
+        handler = self.ability_registry.get_handler("G_STRIKE")
+        if handler is not None and hasattr(handler, "apply_g_strike"):
+            return handler.apply_g_strike(self, card, defender_player, attacker_player, info)
+        return info
+
+    def _select_g_strike_target(self, attacker_player: int) -> int | None:
+        handler = self.ability_registry.get_handler("G_STRIKE")
+        if handler is not None and hasattr(handler, "choose_target"):
+            return handler.choose_target(self, self._require_state().opponent, attacker_player)
+        return None
 
     def _clear_last_trigger(self) -> None:
         state = self._require_state()
@@ -637,10 +811,10 @@ class Env:
 
         if defender_destroyed:
             destroyed_defender = defending_player.battle_zone.pop(defender_index)
-            defending_player.graveyard.append(destroyed_defender.card)
+            defending_player.graveyard.extend(_creature_zone_cards(destroyed_defender))
         if attacker_destroyed:
             destroyed_attacker = attacking_player.battle_zone.pop(attacker_index)
-            attacking_player.graveyard.append(destroyed_attacker.card)
+            attacking_player.graveyard.extend(_creature_zone_cards(destroyed_attacker))
 
     def _pending_attack_observation(self) -> dict[str, Any] | None:
         state = self._require_state()
@@ -692,6 +866,9 @@ class Env:
                     "card": self._card_observation(creature.card),
                     "tapped": creature.tapped,
                     "summoned_turn": creature.summoned_turn,
+                    "cannot_attack_this_turn": creature.cannot_attack_this_turn,
+                    "evolution_source_count": len(creature.evolution_sources),
+                    "evolution_sources": [self._card_observation(card) for card in creature.evolution_sources],
                 }
                 for creature in player.battle_zone
             ],
@@ -724,6 +901,25 @@ class Env:
             "trigger_effect": card.trigger_effect,
             "spell_effect": card.spell_effect,
             "ability_tags": list(card.ability_tags),
+            "breaker_count": card.breaker_count,
+            "is_twinpact": card.is_twinpact,
+            "top_side": self._side_observation(card.top_side),
+            "bottom_side": self._side_observation(card.bottom_side),
+        }
+
+    def _side_observation(self, side) -> dict[str, Any] | None:
+        if side is None:
+            return None
+        return {
+            "name": side.name,
+            "cost": side.cost,
+            "civilizations": list(side.civilizations),
+            "card_type": side.card_type,
+            "power": side.power,
+            "spell_effect": side.spell_effect,
+            "trigger_effect": side.trigger_effect,
+            "shield_trigger": side.shield_trigger,
+            "ability_tags": list(side.ability_tags),
         }
 
     def _visible_trigger_count(self, player: PlayerState) -> int:
@@ -750,3 +946,42 @@ def _has_hachiko_after_attack_trigger(card: Card) -> bool:
         card.name == "特攻の忠剣ハチ公"
         or {"GACHINKO_JUDGE", "SEARCH_SAME_NAME", "PUT_FROM_DECK_TO_BATTLE_ZONE"}.issubset(tags)
     )
+
+
+def _creature_zone_card(creature: Creature) -> Card:
+    return _creature_zone_cards(creature)[0]
+
+
+def _creature_zone_cards(creature: Creature) -> list[Card]:
+    return [creature.original_card or creature.card] + list(creature.evolution_sources)
+
+
+def _can_use_twinpact_shield_trigger(card: Card) -> bool:
+    return (
+        card.is_twinpact
+        and card.bottom_side is not None
+        and card.bottom_side.card_type == "SPELL"
+        and card.bottom_side.shield_trigger
+        and card.bottom_side.trigger_effect is not None
+    )
+
+
+def _has_g_strike(card: Card) -> bool:
+    return any(handler.tag == "G_STRIKE" for handler in get_default_ability_registry().get_handlers_for_card(card))
+
+
+def _creature_can_attack_now(creature: Creature, turn_number: int) -> bool:
+    if creature.tapped or creature.cannot_attack_this_turn:
+        return False
+    handler_allows_attack = False
+    for handler in get_default_ability_registry().get_handlers_for_card(creature):
+        modified = handler.modifies_attack_permission(creature, None, 0)
+        if modified is False:
+            return False
+        if modified is True:
+            handler_allows_attack = True
+    if handler_allows_attack:
+        return True
+    tags = set(creature.card.ability_tags)
+    has_attack_ready_evolution = bool({"INVASION", "ATTACKING_CREATURE_EVOLUTION"} & tags)
+    return has_attack_ready_evolution or creature.summoned_turn < turn_number

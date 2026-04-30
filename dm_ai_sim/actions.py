@@ -8,6 +8,8 @@ class ActionType(str, Enum):
     CHARGE_MANA = "CHARGE_MANA"
     SUMMON = "SUMMON"
     CAST_SPELL = "CAST_SPELL"
+    REVOLUTION_CHANGE = "REVOLUTION_CHANGE"
+    INVASION = "INVASION"
     ATTACK_SHIELD = "ATTACK_SHIELD"
     ATTACK_PLAYER = "ATTACK_PLAYER"
     ATTACK_CREATURE = "ATTACK_CREATURE"
@@ -25,3 +27,4 @@ class Action:
     attacker_index: int | None = None
     target_index: int | None = None
     blocker_index: int | None = None
+    side: str | None = None

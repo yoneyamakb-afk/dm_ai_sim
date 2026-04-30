@@ -749,6 +749,68 @@ python -m dm_ai_sim.analyze_hachiko_logs
 
 `data/decks/hachiko_runtime_test_deck.json` は能力確認用デッキであり、大会評価用ではありません。
 
+Reference Deck 02の第2段階として、TWINPACTの最小ランタイム対応を追加しています。ツインパクトカードは1枚のカードとしてゾーンを移動し、使う時だけ `Action.side` で上側または下側を選びます。action ID空間は変更せず、既存の `SUMMON` / `CAST_SPELL` IDを使い、decode後にlegal action側のside情報を補完します。
+
+ツインパクト挙動の確認:
+
+```powershell
+python -m dm_ai_sim.evaluate_twinpact
+python -m dm_ai_sim.analyze_twinpact_logs
+```
+
+`data/decks/twinpact_runtime_test_deck.json` はツインパクト処理テスト用であり、大会評価用ではありません。
+
+Reference Deck 02の第3段階として、G・ストライクの簡易処理を追加しています。シールドからG・ストライクカードが手札に加わる時、自動で相手クリーチャー1体を選び、そのターン攻撃できない状態にします。G・ストライク使用後、そのカードは手札へ加わります。S・トリガーとG・ストライクを両方持つカードの優先順は暫定でS・トリガー側を優先する方針です。
+
+プリンがガチンコ・ジャッジで表向きになった場合のツインパクト裁定について、現在は《綺羅王女プリン / ハンター☆エイリアン仲良しビーム》専用に `bottom_spell_cost` をログへ記録します。将来は、ガチンコ・ジャッジで表向きになったツインパクト全般のコスト参照と出せる面の処理を汎用化します。
+
+G・ストライク挙動の確認:
+
+```powershell
+python -m dm_ai_sim.evaluate_gstrike
+python -m dm_ai_sim.analyze_gstrike_logs
+```
+
+`data/decks/gstrike_runtime_test_deck.json` はG・ストライク処理テスト用であり、大会評価用ではありません。
+
+Reference Deck 02の第4段階として、REVOLUTION_CHANGEの最小処理を追加しています。実ルールの攻撃時置換処理ではなく、初期版ではATTACKフェーズ中に使える特殊召喚Actionとして扱います。手札の革命チェンジ持ちカードを出し、攻撃可能な自軍クリーチャーを1体手札へ戻します。コスト/文明支払いは不要で、1ターン1回の簡易制限を置いています。将来はカードデータに `revolution_change_condition` を持たせ、火または自然のコマンドなどの条件へ寄せます。
+
+action ID空間は384から512へ拡張しました。`384-463` は `REVOLUTION_CHANGE(hand_index 0-9, attacker_index 0-7)`、`464-511` は将来拡張用予約です。旧384幅モデルはaction space不一致になるため、必要に応じてスキップまたは再学習してください。
+
+革命チェンジ挙動の確認:
+
+```powershell
+python -m dm_ai_sim.evaluate_revolution_change
+python -m dm_ai_sim.analyze_revolution_change_logs
+```
+
+`data/decks/revolution_change_runtime_test_deck.json` は革命チェンジ処理テスト用であり、大会評価用ではありません。
+
+Reference Deck 02の第5段階として、INVASION/進化の最小処理を追加しています。実ルールの攻撃時宣言中の置換ではなく、初期版ではATTACKフェーズ中に使える特殊Actionとして扱います。手札の侵略持ちクリーチャーを、攻撃可能な自軍クリーチャーの上に重ね、元クリーチャーは `evolution_sources` に保持します。コスト/文明支払いは不要で、1ターン1回の簡易制限を置いています。
+
+進化クリーチャーが破壊される場合、現時点では上カードと進化元をすべて墓地へ送ります。手札へ戻る処理でも、簡易仕様として上カードと進化元をまとめて戻します。これは実ルールの細部再現ではなく、ゾーン枚数とAI評価を破綻させないための暫定仕様です。`DOUBLE_BREAKER` は `breaker_count=2` のデータとして保持しますが、複数シールドブレイクの順次解決はまだ未実装です。
+
+action ID空間は512から640へ拡張しました。`512-591` は `INVASION(hand_index 0-9, attacker_index 0-7)`、`592-639` は将来拡張用予約です。旧512幅モデルはaction space不一致になるため、必要に応じてスキップまたは再学習してください。
+
+侵略挙動の確認:
+
+```powershell
+python -m dm_ai_sim.evaluate_invasion
+python -m dm_ai_sim.analyze_invasion_logs
+```
+
+`data/decks/invasion_runtime_test_deck.json` は侵略/進化元保持の処理テスト用であり、大会評価用ではありません。
+
+Reference Deck 02の第6段階として、AbilityHandler/Eventの最小土台を追加しています。これは大規模リファクタではなく、今後の能力追加で `env.py` や `rules.py` に個別カード処理を増やし続けないための薄い抽象化です。
+
+- `dm_ai_sim.events` に `EventType` / `Event` を追加
+- `dm_ai_sim.ability_handlers` に `AbilityHandler`、`AbilityRegistry`、`SpeedAttackerHandler`、`GStrikeHandler` を追加
+- `SPEED_ATTACKER` の攻撃可能判定はhandler経由へ移行
+- G・ストライクの対象選択と適用はhandler経由へ部分移行
+- 既存のハチ公、TWINPACT、REVOLUTION_CHANGE、INVASIONは今回は無理に移行していません
+
+新しいカード能力を追加する時は、原則としてAbilityHandlerを作り、必要なhookだけをCore Rules Engineから呼び出します。今後の `DOUBLE_BREAKER` 実処理、`COST_REDUCTION`、`LOCK`、`META_EFFECT` はhandler方式で追加する予定です。設計方針は [ARCHITECTURE_RULE_ENGINE.md](ARCHITECTURE_RULE_ENGINE.md)、移行状況は [ABILITY_HANDLER_MIGRATION.md](ABILITY_HANDLER_MIGRATION.md) にまとめています。
+
 ## 参考にした研究・設計観点
 
 - [Zha et al., "DouZero: Mastering DouDizhu with Self-Play Deep Reinforcement Learning", ICML 2021](https://arxiv.org/abs/2106.06135)。可変合法手、自己対戦、Deep Monte-Carloの考え方を参照。

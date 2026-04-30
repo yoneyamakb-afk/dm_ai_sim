@@ -91,7 +91,7 @@ def main() -> None:
     else:
         print("can_enter_simulation: false")
         print("cannot_enter_reason: unknown official data and unsupported high-priority ability tags remain")
-        print("provisional_risk: placeholder conversion would hide missing card text, costs, civilizations, and twinpact/invasion/revolution mechanics")
+        print("provisional_risk: placeholder conversion would hide missing card text, costs, civilizations, cost reduction, lock/meta effects, and card-specific mechanics")
 
 
 def _power_completion_counts(deck, database) -> tuple[int, int]:

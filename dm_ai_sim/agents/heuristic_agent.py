@@ -17,6 +17,8 @@ class HeuristicAgent:
             return self._block_or_decline(legal_actions, observation)
 
         for action_type in (
+            ActionType.INVASION,
+            ActionType.REVOLUTION_CHANGE,
             ActionType.ATTACK_CREATURE,
             ActionType.ATTACK_PLAYER,
             ActionType.ATTACK_SHIELD,
@@ -37,6 +39,10 @@ class HeuristicAgent:
                 if blocker_removal:
                     return blocker_removal[0]
                 continue
+            if action_type == ActionType.REVOLUTION_CHANGE and observation is not None:
+                return self._best_revolution_change(candidates, observation)
+            if action_type == ActionType.INVASION and observation is not None:
+                return self._best_invasion(candidates, observation)
             if action_type in {ActionType.ATTACK_PLAYER, ActionType.ATTACK_SHIELD} and observation is not None:
                 if self._has_untapped_opponent_blocker(observation):
                     continue
@@ -101,7 +107,32 @@ class HeuristicAgent:
 
     def _highest_cost_summon(self, actions: list[Action], observation: dict) -> Action:
         hand = observation["self"]["hand"]
-        return max(actions, key=lambda action: hand[action.card_index]["cost"])
+        return max(actions, key=lambda action: _action_card_cost(hand[action.card_index], action))
+
+    def _best_revolution_change(self, actions: list[Action], observation: dict) -> Action:
+        hand = observation["self"]["hand"]
+        battle_zone = observation["self"]["battle_zone"]
+
+        def score(action: Action) -> tuple[int, int, int]:
+            change_card = hand[action.hand_index]
+            returned = battle_zone[action.attacker_index]
+            hachiko_bonus = 5 if returned["card"]["name"] == "特攻の忠剣ハチ公" else 0
+            return change_card["power"] - returned["card"]["power"], hachiko_bonus, change_card["power"]
+
+        return max(actions, key=score)
+
+    def _best_invasion(self, actions: list[Action], observation: dict) -> Action:
+        hand = observation["self"]["hand"]
+        battle_zone = observation["self"]["battle_zone"]
+
+        def score(action: Action) -> tuple[int, int, int]:
+            invasion_card = hand[action.hand_index]
+            source = battle_zone[action.attacker_index]
+            hachiko_bonus = 5 if source["card"]["name"] == "特攻の忠剣ハチ公" else 0
+            red_zone_bonus = 5 if invasion_card["name"] == "熱き侵略 レッドゾーンZ" else 0
+            return invasion_card["power"] - source["card"]["power"], hachiko_bonus + red_zone_bonus, invasion_card["power"]
+
+        return max(actions, key=score)
 
     def _best_spell(self, actions: list[Action], observation: dict) -> Action | None:
         hand = observation["self"]["hand"]
@@ -111,7 +142,7 @@ class HeuristicAgent:
 
         destroy_actions = [
             action for action in actions
-            if (hand[action.hand_index]["spell_effect"] or hand[action.hand_index]["trigger_effect"]) == "DESTROY_TARGET"
+            if _action_spell_effect(hand[action.hand_index], action) == "DESTROY_TARGET"
         ]
         if destroy_actions:
             blocker_targets = [
@@ -134,7 +165,7 @@ class HeuristicAgent:
             if desired == "DRAW_1" and hand_count > 2:
                 continue
             for action in actions:
-                effect = hand[action.hand_index]["spell_effect"] or hand[action.hand_index]["trigger_effect"]
+                effect = _action_spell_effect(hand[action.hand_index], action)
                 if effect == desired:
                     return action
         return None
@@ -222,3 +253,18 @@ class HeuristicAgent:
             return value, card["cost"]
 
         return max(actions, key=score)
+
+
+def _action_card_cost(card: dict, action: Action) -> int:
+    if action.side == "top" and card.get("top_side"):
+        return int(card["top_side"].get("cost") or card["cost"])
+    if action.side == "bottom" and card.get("bottom_side"):
+        return int(card["bottom_side"].get("cost") or card["cost"])
+    return int(card["cost"])
+
+
+def _action_spell_effect(card: dict, action: Action) -> str | None:
+    if action.side == "bottom" and card.get("bottom_side"):
+        side = card["bottom_side"]
+        return side.get("spell_effect") or side.get("trigger_effect")
+    return card.get("spell_effect") or card.get("trigger_effect")

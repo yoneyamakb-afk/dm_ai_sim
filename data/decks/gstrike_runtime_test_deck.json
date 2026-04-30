@@ -1,0 +1,10 @@
+{
+  "name": "G-Strike Runtime Test Deck",
+  "format": "runtime-test",
+  "purpose": "G-Strike behavior verification only; not a tournament or competitive evaluation deck.",
+  "cards": [
+    {"card_id": "DM_REF_020", "count": 12},
+    {"card_id": "DM_REF_014", "count": 16},
+    {"card_id": "DM_REF_017", "count": 12}
+  ]
+}

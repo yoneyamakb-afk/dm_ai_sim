@@ -90,13 +90,13 @@ def test_deck_compatibility_reports_missing_fields_summary() -> None:
     assert "official_data_complete_count" in report
     assert "twinpact_count" in report
     assert report["twinpact_count"] == 20
-    assert report["twinpact_blocked_count"] == 20
+    assert report["twinpact_blocked_count"] == 0
 
 
-def test_twinpact_strict_runtime_conversion_is_blocked() -> None:
+def test_twinpact_with_unsupported_tags_strict_runtime_conversion_is_blocked() -> None:
     database = load_card_database(REFERENCE_CARDS)
 
-    with pytest.raises(ValueError, match="twinpact"):
+    with pytest.raises(ValueError, match="unsupported tags"):
         database.to_runtime_card("DM_REF_019", strict=True)
 
 

@@ -111,3 +111,71 @@ Reference Deck 02を優先対象にします。まずハチ公デッキに含ま
 - `data/decks/hachiko_runtime_test_deck.json` は能力確認用であり、大会評価用デッキではありません。
 
 次候補は `TWINPACT` と `G_STRIKE`、または `REVOLUTION_CHANGE` / `INVASION` です。
+
+## Reference Deck 02 Stage 2 Twinpact Work
+
+4-Fで対象デッキ優先の `TWINPACT` 最小実装を追加しました。
+
+- ツインパクトカードはランタイムでも1枚のカードとして保持します。
+- `top_side` が `CREATURE` なら上側召喚できます。
+- `bottom_side` が `SPELL` なら下側詠唱できます。
+- マナ、シールド、墓地では元カード1枚として移動します。
+- 下側にS・トリガー情報がある場合、初期版では自動発動します。
+- action ID空間は維持し、`Action.side` で `"top"` / `"bottom"` を保持します。
+
+詳細な裁定、両面にまたがる常在能力、複雑な置換効果、任意選択は今後の課題です。次候補は `G_STRIKE`、`REVOLUTION_CHANGE`、`INVASION` です。
+
+## Reference Deck 02 Stage 3 G-Strike Work
+
+4-Gで対象デッキ優先の `G_STRIKE` 簡易実装を追加しました。
+
+- G・ストライクはシールドから手札に加わる時に自動使用します。
+- 対象は攻撃可能、SPEED_ATTACKER/ハチ公、高パワーの順で自動選択します。
+- 対象クリーチャーには `cannot_attack_this_turn` を付与し、ターン進行時に解除します。
+- G・ストライク使用後、そのカードは手札へ加わります。
+- ツインパクトの場合、カード全体、上側、下側の `G_STRIKE` タグを確認します。
+- 《綺羅王女プリン / ハンター☆エイリアン仲良しビーム》がガチンコ・ジャッジで表向きになった場合、公式Q&A（https://dm.takaratomy.co.jp/rule/qa/38694/）由来の特別裁定として `bottom_spell_cost` をjudge cost sourceに記録します。
+
+今後は `REVOLUTION_CHANGE`、`INVASION`、`COST_REDUCTION` を順に検討します。
+
+## Reference Deck 02 Stage 4 Revolution Change Work
+
+4-Hで《轟く革命 レッドギラゾーン》向けに `REVOLUTION_CHANGE` 最小実装を追加しました。
+
+- `REVOLUTION_CHANGE` はATTACKフェーズ中の特殊召喚Actionとして扱います。
+- 手札の革命チェンジ持ちクリーチャーを出し、攻撃可能な自軍クリーチャーを手札へ戻します。
+- 初期版ではコスト支払い・文明支払いは不要です。
+- 実ルールの攻撃時置換処理や「火または自然のコマンド」などの条件は今後詳細化します。
+- 1ターン1回の簡易制限で、革命チェンジを無限に繰り返さないようにしています。
+- action spaceは512に拡張し、384-463を `REVOLUTION_CHANGE` 用に使います。
+
+次候補は `INVASION` または `COST_REDUCTION` です。
+
+## Reference Deck 02 Stage 5 Invasion Work
+
+4-Iで《熱き侵略 レッドゾーンZ》向けに `INVASION` / `EVOLUTION` 最小実装を追加しました。
+
+- `INVASION` はATTACKフェーズ中の特殊Actionとして扱います。
+- 手札の侵略持ちクリーチャーを、攻撃可能な自軍クリーチャーの上に重ねます。
+- 元クリーチャーと既存の進化元は `evolution_sources` に保持します。
+- 初期版ではコスト支払い・文明支払いは不要です。
+- 実ルールの「火のコマンドが攻撃する時」条件はカードデータの `invasion_condition` に残し、ランタイム条件は今後詳細化します。
+- 進化クリーチャーが破壊/バウンスされる場合、現時点では上カードと進化元をまとめて移動します。
+- `DOUBLE_BREAKER` は `breaker_count=2` のデータとして保持しますが、複数ブレイクの順次処理は未実装です。
+- action spaceは640に拡張し、512-591を `INVASION` 用に使います。
+
+次候補は `COST_REDUCTION` または `DOUBLE_BREAKER` の実処理です。
+
+## Ability Handler Direction
+
+4-Jで実カード能力を段階的に接続するためのAbilityHandler/Event土台を追加しました。
+
+- 実カード能力は `ability_tags` から `AbilityRegistry` を通じて `AbilityHandler` へ接続します。
+- 未対応タグは引き続きcompatibility診断で検出し、Reference Deck単位で優先順位を決めます。
+- 対象デッキ優先でhandlerを増やし、全カード能力の一括再現は狙いません。
+- `SPEED_ATTACKER` は攻撃可能判定handlerへ移行済みです。
+- `G_STRIKE` は対象選択と適用をhandlerへ部分移行済みです。
+- `DOUBLE_BREAKER`、`COST_REDUCTION`、`LOCK`、`META_EFFECT` は原則handlerとして追加します。
+- 将来的に `RuleSpec` JSONやDSLへ移行する場合も、まずはAbilityHandlerの入力データを外部化する形から進めます。
+
+現時点ではCLIPSや本格DSLは導入しません。まずPython内の小さなhandler APIで、必要なイベント、hook、テスト境界を固めます。

@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from dm_ai_sim.card import Card
-from dm_ai_sim.card_database import CardData, CardDatabase, unknown_data_fields
+from dm_ai_sim.card_database import CardData, CardDatabase, twinpact_runtime_blocked_reasons, unknown_data_fields
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,8 +63,10 @@ def _runtime_copies(card: Card, count: int) -> list[Card]:
 def runtime_blocked_reasons(card: CardData) -> list[str]:
     fields = set(unknown_data_fields(card))
     reasons: list[str] = []
-    if card.is_twinpact:
+    twinpact_reasons = twinpact_runtime_blocked_reasons(card)
+    if twinpact_reasons:
         reasons.append("twinpact_unsupported")
+        reasons.extend(twinpact_reasons)
     if "cost" in fields:
         reasons.append("missing_cost")
     if "civilizations" in fields:
@@ -73,7 +75,7 @@ def runtime_blocked_reasons(card: CardData) -> list[str]:
         reasons.append("missing_card_type")
     if "power" in fields:
         reasons.append("unknown_power")
-    if card.unsupported_tags:
+    if any(tag != "TWINPACT" for tag in card.unsupported_tags):
         reasons.append("unsupported_tags")
     return reasons
 

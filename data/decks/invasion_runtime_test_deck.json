@@ -1,0 +1,10 @@
+{
+  "name": "Invasion Runtime Test Deck",
+  "format": "dm_runtime_test",
+  "source": "phase_4_i_invasion_runtime_test",
+  "cards": [
+    {"card_id": "DM_REF_016", "count": 4},
+    {"card_id": "DM_REF_014", "count": 24},
+    {"card_id": "DM_REF_015", "count": 12}
+  ]
+}

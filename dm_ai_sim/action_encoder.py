@@ -13,6 +13,10 @@ MAX_BLOCKER_SLOTS = 8
 MAX_CAST_SPELL_HAND_SLOTS = 40
 MAX_CAST_SPELL_TARGET_HAND_SLOTS = 10
 MAX_CAST_SPELL_TARGETS = 8
+MAX_REVOLUTION_CHANGE_HAND_SLOTS = 10
+MAX_REVOLUTION_CHANGE_ATTACKERS = 8
+MAX_INVASION_HAND_SLOTS = 10
+MAX_INVASION_ATTACKERS = 8
 
 CHARGE_MANA_OFFSET = 0
 SUMMON_OFFSET = 40
@@ -27,9 +31,13 @@ DECLINE_BLOCK_ID = 250
 CAST_SPELL_OFFSET = 256
 CAST_SPELL_TARGET_OFFSET = 296
 CAST_SPELL_TARGET_SIZE = MAX_CAST_SPELL_TARGET_HAND_SLOTS * MAX_CAST_SPELL_TARGETS
+REVOLUTION_CHANGE_OFFSET = 384
+REVOLUTION_CHANGE_SIZE = MAX_REVOLUTION_CHANGE_HAND_SLOTS * MAX_REVOLUTION_CHANGE_ATTACKERS
+INVASION_OFFSET = 512
+INVASION_SIZE = MAX_INVASION_HAND_SLOTS * MAX_INVASION_ATTACKERS
 
-ACTION_SPACE_SIZE = 384
-SUPPORTED_ACTION_IDS = CAST_SPELL_TARGET_OFFSET + CAST_SPELL_TARGET_SIZE
+ACTION_SPACE_SIZE = 640
+SUPPORTED_ACTION_IDS = INVASION_OFFSET + INVASION_SIZE
 
 
 def encode_action(action: Action | Mapping[str, Any]) -> int:
@@ -55,6 +63,20 @@ def encode_action(action: Action | Mapping[str, Any]) -> int:
             CAST_SPELL_TARGET_OFFSET
             + _require_range(hand_index, MAX_CAST_SPELL_TARGET_HAND_SLOTS) * MAX_CAST_SPELL_TARGETS
             + _require_range(normalized.target_index, MAX_CAST_SPELL_TARGETS)
+        )
+    if normalized.type == ActionType.REVOLUTION_CHANGE:
+        hand_index = normalized.hand_index if normalized.hand_index is not None else normalized.card_index
+        return (
+            REVOLUTION_CHANGE_OFFSET
+            + _require_range(hand_index, MAX_REVOLUTION_CHANGE_HAND_SLOTS) * MAX_REVOLUTION_CHANGE_ATTACKERS
+            + _require_range(normalized.attacker_index, MAX_REVOLUTION_CHANGE_ATTACKERS)
+        )
+    if normalized.type == ActionType.INVASION:
+        hand_index = normalized.hand_index if normalized.hand_index is not None else normalized.card_index
+        return (
+            INVASION_OFFSET
+            + _require_range(hand_index, MAX_INVASION_HAND_SLOTS) * MAX_INVASION_ATTACKERS
+            + _require_range(normalized.attacker_index, MAX_INVASION_ATTACKERS)
         )
     if normalized.type == ActionType.BLOCK:
         return BLOCK_OFFSET + _require_range(normalized.blocker_index, MAX_BLOCKER_SLOTS)
@@ -106,6 +128,20 @@ def decode_action(action_id: int) -> Action:
             hand_index=encoded // MAX_CAST_SPELL_TARGETS,
             target_index=encoded % MAX_CAST_SPELL_TARGETS,
         )
+    if REVOLUTION_CHANGE_OFFSET <= action_id < REVOLUTION_CHANGE_OFFSET + REVOLUTION_CHANGE_SIZE:
+        encoded = action_id - REVOLUTION_CHANGE_OFFSET
+        return Action(
+            ActionType.REVOLUTION_CHANGE,
+            hand_index=encoded // MAX_REVOLUTION_CHANGE_ATTACKERS,
+            attacker_index=encoded % MAX_REVOLUTION_CHANGE_ATTACKERS,
+        )
+    if INVASION_OFFSET <= action_id < INVASION_OFFSET + INVASION_SIZE:
+        encoded = action_id - INVASION_OFFSET
+        return Action(
+            ActionType.INVASION,
+            hand_index=encoded // MAX_INVASION_ATTACKERS,
+            attacker_index=encoded % MAX_INVASION_ATTACKERS,
+        )
 
     raise ValueError(f"Reserved action_id is not currently decodable: {action_id}")
 
@@ -130,6 +166,7 @@ def _normalize_action(action: Action | Mapping[str, Any]) -> Action:
             attacker_index=action.get("attacker_index"),
             target_index=action.get("target_index"),
             blocker_index=action.get("blocker_index"),
+            side=action.get("side"),
         )
     raise ValueError(f"Unsupported action object: {action!r}")
 

@@ -64,22 +64,29 @@ Total: 40
 Current status:
 
 - ハチ公本体のruntime変換: 可能
-- runtime_convertible_count: 9
-- runtime_blocked_count: 31
+- TWINPACT最小実装: 対応済み
+- G_STRIKE簡易実装: 対応済み
+- REVOLUTION_CHANGE最小実装: 対応済み
+- INVASION/EVOLUTION最小実装: 対応済み
+- DOUBLE_BREAKER: `breaker_count=2` のデータのみ対応済み
+- runtime_convertible_count: 診断CLIで確認
+- runtime_blocked_count: 診断CLIで確認
+- twinpact_blocked_count: 0
 - 4枚超過カード: 《特攻の忠剣ハチ公》 x9
 - 《特攻の忠剣ハチ公》は4枚超過可能な確定仕様として扱う
 - same-name exception: `DM_REF_014`
 - 構築上は `reference_ruleset.json` の `same_name_exception_card_ids` により合法
 - ハチ公の `SPEED_ATTACKER` と攻撃終了時の簡易ガチンコ・ジャッジ同名展開は実装済み
+- ツインパクトは1枚のカードとして保持し、上側CREATURE召喚と下側SPELL詠唱に対応
+- プリンのG・ストライクはシールドから手札へ加わる時に自動使用し、対象クリーチャーをそのターン攻撃不可にする
+- プリンがガチンコ・ジャッジで表向きになった場合、呪文側コスト参照の裁定ログを残す
+- レッドギラゾーンはATTACKフェーズ中の特殊召喚Actionとして簡易革命チェンジ可能
+- レッドゾーンZはATTACKフェーズ中の特殊Actionとして簡易侵略可能。元クリーチャーは `evolution_sources` に保持
 - Reference Deck 02全体はまだBlocked
 - reliability: Low
 
 Major unsupported or unconfirmed tags:
 
-- `REVOLUTION_CHANGE`
-- `INVASION`
-- `TWINPACT`
-- `G_STRIKE`
 - `COST_REDUCTION`
 - `DESTROY`
 - `MANA_BOOST`
@@ -87,6 +94,7 @@ Major unsupported or unconfirmed tags:
 - `LOCK`
 - `ALTERNATE_WIN_CONDITION`
 - `SHIELD_TRIGGER`
+- `META_EFFECT`
 
 ## Priority Work Before Accurate Simulation
 
@@ -95,7 +103,6 @@ High:
 - 公式カードデータの確認と入力
 - `TWINPACT`
 - `REVOLUTION_CHANGE`
-- `INVASION`
 - `SPEED_ATTACKER`
 - `G_STRIKE`
 - `ALTERNATE_WIN_CONDITION`
@@ -116,18 +123,18 @@ Medium:
 
 Reference Deck 01 is likely the more practical first target if the goal is incremental support, because it appears to have fewer structural mechanics like twinpact, invasion, and revolution change. However, it still depends on special win condition and meta effects.
 
-Reference Deck 02 requires earlier support for deck construction exceptions, twinpact, revolution change, invasion, and G・ストライク. It is a better stress test for real-card infrastructure, but a harder first accurate simulator target.
+Reference Deck 02 required early support for deck construction exceptions, twinpact, revolution change, invasion, and G・ストライク; those now have minimal implementations. It remains a harder accurate simulator target because cost reduction, lock/meta effects, alternate win handling, and card-specific effects are still open.
 
 ## Reference Deck 02 Simulation Readiness
 
 Current readiness: Blocked.
 
-《特攻の忠剣ハチ公》9枚投入は4枚超過違反ではなく、カード能力による合法構築として扱います。ハチ公本体はruntime変換可能で、`SPEED_ATTACKER`、簡易 `GACHINKO_JUDGE`、`SEARCH_SAME_NAME`、`PUT_FROM_DECK_TO_BATTLE_ZONE` による同名展開が動きます。
+《特攻の忠剣ハチ公》9枚投入は4枚超過違反ではなく、カード能力による合法構築として扱います。ハチ公本体はruntime変換可能で、`SPEED_ATTACKER`、簡易 `GACHINKO_JUDGE`、`SEARCH_SAME_NAME`、`PUT_FROM_DECK_TO_BATTLE_ZONE` による同名展開が動きます。TWINPACT、G・ストライク、REVOLUTION_CHANGE、INVASION/EVOLUTIONも最小実装済みです。
 
 Blocked reasons:
 
-- Twinpact cards are 20 cards, and the runtime does not yet model upper/lower card faces.
-- Revolution change, invasion, G・ストライク, cost reduction, lock/meta effects, and alternate win conditions are not implemented.
+- Cost reduction, lock/meta effects, alternate win conditions, and several card-specific effects are not implemented.
+- Double breaker is data-only; multiple shield break sequencing remains future work.
 - Some cards still have unknown official data fields.
 - Placeholder conversion is intentionally blocked by default, because silently guessing card type, cost, civilization, or power would produce misleading results.
 
@@ -136,6 +143,6 @@ Shortest route:
 1. Complete official data for Reference Deck 02.
 2. Implement or approximate twinpact structure.
 3. Keep Hachiko's same-name exception as a ruleset feature.
-4. Implement `TWINPACT` and `G_STRIKE`.
-5. Implement Red Girazone / Red Zone Z movement mechanics: revolution change and invasion.
+4. Implement cost reduction and full double-breaker shield sequencing.
+5. Implement remaining lock/meta effects.
 6. Add card-specific handlers for Q.Q.QX. and key meta/lock effects.
