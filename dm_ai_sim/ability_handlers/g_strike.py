@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from dm_ai_sim.ability_handlers.base import AbilityHandler
+from dm_ai_sim.attack_permissions import get_gstrike_targets
 
 
 class GStrikeHandler(AbilityHandler):
@@ -26,9 +27,11 @@ class GStrikeHandler(AbilityHandler):
         state = env.state
         if state is None:
             return None
+        target_indices = get_gstrike_targets(env, attacker_player)
         candidates: list[tuple[tuple[int, int, int, int], int]] = []
-        for index, creature in enumerate(state.players[attacker_player].battle_zone):
-            attack_capable = int(_creature_can_attack_now(creature, state.turn_number))
+        for index in target_indices:
+            creature = state.players[attacker_player].battle_zone[index]
+            attack_capable = 1
             likely_chain = int("SPEED_ATTACKER" in creature.card.ability_tags or creature.card.name == "特攻の忠剣ハチ公")
             candidates.append(((attack_capable, likely_chain, creature.card.power, -index), index))
         if not candidates:
@@ -55,14 +58,3 @@ class GStrikeHandler(AbilityHandler):
         info["g_strike_target_name"] = target.card.name
         info["g_strike_prevented_attack"] = True
         return info
-
-
-def _creature_can_attack_now(creature: Any, turn_number: int) -> bool:
-    tags = set(creature.card.ability_tags)
-    has_speed_attacker = "SPEED_ATTACKER" in tags
-    has_attack_ready_evolution = bool({"INVASION", "ATTACKING_CREATURE_EVOLUTION"} & tags)
-    return (
-        not creature.tapped
-        and not creature.cannot_attack_this_turn
-        and (has_speed_attacker or has_attack_ready_evolution or creature.summoned_turn < turn_number)
-    )

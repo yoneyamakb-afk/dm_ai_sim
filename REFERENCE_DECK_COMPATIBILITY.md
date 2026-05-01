@@ -68,7 +68,8 @@ Current status:
 - G_STRIKE簡易実装: 対応済み
 - REVOLUTION_CHANGE最小実装: 対応済み
 - INVASION/EVOLUTION最小実装: 対応済み
-- DOUBLE_BREAKER: `breaker_count=2` のデータのみ対応済み
+- DOUBLE_BREAKER: `breaker_count=2` として実ブレイク処理まで対応済み
+- COST_REDUCTION: 《フェアリー・ギフト》の次CREATURE通常召喚3軽減として最小実装済み
 - runtime_convertible_count: 診断CLIで確認
 - runtime_blocked_count: 診断CLIで確認
 - twinpact_blocked_count: 0
@@ -87,7 +88,6 @@ Current status:
 
 Major unsupported or unconfirmed tags:
 
-- `COST_REDUCTION`
 - `DESTROY`
 - `MANA_BOOST`
 - `GAIN_SHIELD`
@@ -107,7 +107,6 @@ High:
 - `G_STRIKE`
 - `ALTERNATE_WIN_CONDITION`
 - `SAME_NAME_MORE_THAN_4_ALLOWED` ruleset handling
-- `COST_REDUCTION`
 - `META_EFFECT` / `LOCK`
 
 Medium:
@@ -123,26 +122,24 @@ Medium:
 
 Reference Deck 01 is likely the more practical first target if the goal is incremental support, because it appears to have fewer structural mechanics like twinpact, invasion, and revolution change. However, it still depends on special win condition and meta effects.
 
-Reference Deck 02 required early support for deck construction exceptions, twinpact, revolution change, invasion, and G・ストライク; those now have minimal implementations. It remains a harder accurate simulator target because cost reduction, lock/meta effects, alternate win handling, and card-specific effects are still open.
+Reference Deck 02 required early support for deck construction exceptions, twinpact, revolution change, invasion, G・ストライク, double breaker, and Fairy Gift cost reduction; those now have minimal implementations. It remains a harder accurate simulator target because lock/meta effects, alternate win handling, and card-specific effects are still open.
 
 ## Reference Deck 02 Simulation Readiness
 
 Current readiness: Blocked.
 
-《特攻の忠剣ハチ公》9枚投入は4枚超過違反ではなく、カード能力による合法構築として扱います。ハチ公本体はruntime変換可能で、`SPEED_ATTACKER`、簡易 `GACHINKO_JUDGE`、`SEARCH_SAME_NAME`、`PUT_FROM_DECK_TO_BATTLE_ZONE` による同名展開が動きます。TWINPACT、G・ストライク、REVOLUTION_CHANGE、INVASION/EVOLUTIONも最小実装済みです。
+《特攻の忠剣ハチ公》9枚投入は4枚超過違反ではなく、カード能力による合法構築として扱います。ハチ公本体はruntime変換可能で、`SPEED_ATTACKER`、簡易 `GACHINKO_JUDGE`、`SEARCH_SAME_NAME`、`PUT_FROM_DECK_TO_BATTLE_ZONE` による同名展開が動きます。TWINPACT、G・ストライク、REVOLUTION_CHANGE、INVASION/EVOLUTION、DOUBLE_BREAKER、フェアリー・ギフトのCOST_REDUCTIONも最小実装済みです。
 
 Blocked reasons:
 
-- Cost reduction, lock/meta effects, alternate win conditions, and several card-specific effects are not implemented.
-- Double breaker is data-only; multiple shield break sequencing remains future work.
+- Lock/meta effects, alternate win conditions, and several card-specific effects are not implemented.
+- Double breaker is implemented through `breaker_count`; defender-selected ordering for multiple triggers remains future work.
 - Some cards still have unknown official data fields.
 - Placeholder conversion is intentionally blocked by default, because silently guessing card type, cost, civilization, or power would produce misleading results.
 
 Shortest route:
 
 1. Complete official data for Reference Deck 02.
-2. Implement or approximate twinpact structure.
-3. Keep Hachiko's same-name exception as a ruleset feature.
-4. Implement cost reduction and full double-breaker shield sequencing.
-5. Implement remaining lock/meta effects.
-6. Add card-specific handlers for Q.Q.QX. and key meta/lock effects.
+2. Keep Hachiko's same-name exception as a ruleset feature.
+3. Implement or approximate LOCK, META_EFFECT, and alternate-win behavior.
+4. Add card-specific handlers for Q.Q.QX. and key meta/lock effects.

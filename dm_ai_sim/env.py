@@ -9,15 +9,20 @@ from dm_ai_sim.actions import Action, ActionType
 from dm_ai_sim.ability_handlers.registry import get_default_ability_registry
 from dm_ai_sim.card import Card, make_vanilla_deck
 from dm_ai_sim.mana import (
+    active_creature_cost_reductions,
     civilization_counts,
     enters_mana_tapped,
+    effective_summon_cost,
+    mana_payment_plan,
     mana_civilizations,
     multicolor_mana_count,
     playable_hand_counts,
     tap_mana_for_card,
+    tap_mana_for_summon,
 )
 from dm_ai_sim.rules import legal_actions as compute_legal_actions
-from dm_ai_sim.state import Creature, GameState, ManaCard, PendingAttack, Phase, PlayerState
+from dm_ai_sim.shield_breaks import break_shields
+from dm_ai_sim.state import CostReductionEffect, Creature, GameState, ManaCard, PendingAttack, Phase, PlayerState
 
 
 @dataclass(slots=True)
@@ -75,10 +80,27 @@ class Env:
         info["trigger_activated"] = False
         info["trigger_effect"] = None
         info["attacker_destroyed_by_trigger"] = False
+        info["breaker_count"] = 1
+        info["shields_to_break"] = 0
+        info["shields_broken_count"] = 0
+        info["multi_break"] = False
+        info["shield_break_results"] = []
         info["spell_cast"] = False
         info["spell_name"] = None
         info["spell_effect"] = None
         info["spell_target_index"] = None
+        info["cost_reduction_created"] = False
+        info["cost_reduction_source"] = None
+        info["cost_reduction_amount"] = 0
+        info["cost_reduction_applies_to"] = None
+        info["cost_reduction_used"] = False
+        info["cost_reduction_expired"] = False
+        info["cost_reduced_by"] = 0
+        info["summon_card_name"] = None
+        info["original_cost"] = None
+        info["effective_cost"] = None
+        info["mana_paid"] = 0
+        info["summons_enabled_by_reduction"] = False
         info["charged_card"] = None
         info["charged_card_civilizations"] = None
         info["charged_card_enters_tapped"] = False
@@ -118,13 +140,28 @@ class Env:
             player = state.players[acting_player]
             card = player.hand[action.card_index]
             summon_card = card.side_as_card(action.side) if action.side == "top" else card
-            tap_mana_for_card(player, summon_card)
+            original_payment_plan = mana_payment_plan(player, summon_card)
+            summon_effective_cost = effective_summon_cost(player, summon_card)
+            reduction_effects = active_creature_cost_reductions(player)
+            paid_indices = tap_mana_for_summon(player, summon_card)
             original = player.hand.pop(action.card_index)
             player.battle_zone.append(
                 Creature(card=summon_card, summoned_turn=state.turn_number, original_card=original if original.is_twinpact else None)
             )
             info["side_used"] = action.side
             info["summoned_card"] = summon_card.name
+            info["summon_card_name"] = summon_card.name
+            info["original_cost"] = summon_card.cost
+            info["effective_cost"] = summon_effective_cost
+            info["mana_paid"] = len(paid_indices)
+            if reduction_effects:
+                info["cost_reduction_used"] = True
+                info["cost_reduction_source"] = ", ".join(effect.source_card_name for effect in reduction_effects)
+                info["cost_reduction_amount"] = sum(effect.amount for effect in reduction_effects)
+                info["cost_reduction_applies_to"] = "CREATURE"
+                info["cost_reduced_by"] = summon_card.cost - summon_effective_cost
+                info["summons_enabled_by_reduction"] = original_payment_plan is None
+                self._consume_cost_reductions(player, reduction_effects)
 
         elif action.type == ActionType.CAST_SPELL:
             self._raise_if_pending(action)
@@ -167,7 +204,7 @@ class Env:
 
         elif action.type == ActionType.END_ATTACK:
             self._raise_if_pending(action)
-            self._advance_turn()
+            self._advance_turn(info)
 
         done = state.done
         if done:
@@ -295,8 +332,14 @@ class Env:
             state.done = True
             state.phase = Phase.GAME_OVER
 
-    def _advance_turn(self) -> None:
+    def _advance_turn(self, info: dict[str, Any] | None = None) -> None:
         state = self._require_state()
+        expired = self._expire_cost_reductions(state.players[state.current_player])
+        if info is not None and expired:
+            info["cost_reduction_expired"] = True
+            info["cost_reduction_source"] = ", ".join(effect.source_card_name for effect in expired)
+            info["cost_reduction_amount"] = sum(effect.amount for effect in expired)
+            info["cost_reduction_applies_to"] = "CREATURE"
         if state.current_player == 1:
             state.turn_number += 1
             if state.turn_number > self.config.max_turns:
@@ -321,6 +364,8 @@ class Env:
         if spell_card.card_type != "SPELL":
             raise ValueError(f"Card is not a spell: {card.name}")
         effect = spell_card.spell_effect or spell_card.trigger_effect
+        if effect is None and "NEXT_CREATURE_COST_REDUCTION" in spell_card.ability_tags:
+            effect = "NEXT_CREATURE_COST_REDUCTION"
         if effect is None:
             raise ValueError(f"Spell has no effect: {card.name}")
         if effect == "DESTROY_TARGET" and target_index is None:
@@ -338,8 +383,29 @@ class Env:
             "spell_effect": effect,
             "spell_target_index": target_index,
             "side_used": side,
+            "cost_reduction_created": False,
+            "cost_reduction_source": None,
+            "cost_reduction_amount": 0,
+            "cost_reduction_applies_to": None,
         }
         self._set_last_spell(effect, state.current_player)
+
+        if effect == "NEXT_CREATURE_COST_REDUCTION" or "NEXT_CREATURE_COST_REDUCTION" in spell_card.ability_tags:
+            player.graveyard.append(original_card)
+            effect_amount = 3
+            player.pending_cost_reductions.append(
+                CostReductionEffect(
+                    source_card_name=spell_card.name,
+                    applies_to="CREATURE",
+                    amount=effect_amount,
+                    expires="NEXT_CREATURE_SUMMON",
+                )
+            )
+            info["cost_reduction_created"] = True
+            info["cost_reduction_source"] = spell_card.name
+            info["cost_reduction_amount"] = effect_amount
+            info["cost_reduction_applies_to"] = "CREATURE"
+            return info
 
         if effect == "DRAW_1":
             player.graveyard.append(original_card)
@@ -443,18 +509,20 @@ class Env:
         state = self._require_state()
         player = state.players[state.current_player]
         opponent = state.players[state.opponent]
+        attacker = player.battle_zone[attacker_index]
         self._resolve_battle(player, attacker_index, opponent, target_index)
         if not state.done:
-            self._resolve_after_attack_triggers(state.current_player, state.opponent, attacker_index, {})
+            self._resolve_after_attack_triggers(state.current_player, state.opponent, attacker, {})
 
     def _attack_creature(self, attacker_index: int, target_index: int) -> dict[str, Any]:
         state = self._require_state()
         attacker_player = state.current_player
         defender_player = state.opponent
         info: dict[str, Any] = {}
+        attacker = state.players[attacker_player].battle_zone[attacker_index]
         self._resolve_battle(state.players[attacker_player], attacker_index, state.players[defender_player], target_index)
         if not state.done:
-            self._resolve_after_attack_triggers(attacker_player, defender_player, attacker_index, info)
+            self._resolve_after_attack_triggers(attacker_player, defender_player, attacker, info)
         return info
 
     def _declare_attack(self, attacker_index: int, target_type: str) -> dict[str, Any]:
@@ -516,7 +584,7 @@ class Env:
             "attacker_power": attacker_power,
         }
         if not state.done:
-            self._resolve_after_attack_triggers(pending.attacker_player, pending.defender_player, pending.attacker_index, info)
+            self._resolve_after_attack_triggers(pending.attacker_player, pending.defender_player, attacker, info)
         self._clear_pending_attack()
         return info
 
@@ -543,7 +611,6 @@ class Env:
         attacker_index: int | None,
     ) -> dict[str, Any]:
         state = self._require_state()
-        defender = state.players[defender_player]
         self._clear_last_trigger()
         self._clear_last_spell()
         info: dict[str, Any] = {
@@ -552,15 +619,24 @@ class Env:
             "trigger_activated": False,
             "trigger_effect": None,
             "attacker_destroyed_by_trigger": False,
+            "breaker_count": 1,
+            "shields_to_break": 0,
+            "shields_broken_count": 0,
+            "multi_break": False,
+            "shield_break_results": [],
         }
         if target_type == "SHIELD":
-            if defender.shields:
-                broken_card = defender.shields.pop()
-                info["shield_broken"] = True
-                info["broken_shield_card"] = broken_card.name
-                info.update(self._resolve_shield_trigger(broken_card, defender_player, attacker_player, attacker_index))
+            attacker = self._creature_by_index(attacker_player, attacker_index)
+            breaker_count = self._attacker_breaker_count(attacker)
+            defender = state.players[defender_player]
+            shields_to_break = min(breaker_count, len(defender.shields))
+            results = break_shields(self, attacker_player, defender_player, shields_to_break, attacker, info)
+            info["breaker_count"] = breaker_count
+            info["shields_to_break"] = shields_to_break
+            info["shields_broken_count"] = len(results)
+            info["multi_break"] = len(results) > 1
             if not state.done:
-                self._resolve_after_attack_triggers(attacker_player, defender_player, attacker_index, info)
+                self._resolve_after_attack_triggers(attacker_player, defender_player, attacker, info)
             return info
         if target_type == "PLAYER":
             state.winner = attacker_player
@@ -588,12 +664,15 @@ class Env:
         self,
         attacker_player: int,
         defender_player: int,
-        attacker_index: int | None,
+        attacker_instance: int | Creature | None,
         info: dict[str, Any],
     ) -> None:
         self._set_after_attack_defaults(info)
         state = self._require_state()
-        if state.done or attacker_index is None:
+        if state.done:
+            return
+        attacker_index = self._creature_index(attacker_player, attacker_instance)
+        if attacker_index is None:
             return
         attacking_zone = state.players[attacker_player].battle_zone
         if attacker_index < 0 or attacker_index >= len(attacking_zone):
@@ -678,70 +757,6 @@ class Env:
         self.random.shuffle(player.deck)
         return None
 
-    def _resolve_shield_trigger(
-        self,
-        card: Card,
-        defender_player: int,
-        attacker_player: int,
-        attacker_index: int | None,
-    ) -> dict[str, Any]:
-        state = self._require_state()
-        defender = state.players[defender_player]
-        info: dict[str, Any] = {
-            "trigger_activated": False,
-            "trigger_effect": None,
-            "attacker_destroyed_by_trigger": False,
-            "g_strike_activated": False,
-            "g_strike_card_name": None,
-            "g_strike_target_index": None,
-            "g_strike_target_name": None,
-            "g_strike_prevented_attack": False,
-            "g_strike_source_zone": None,
-        }
-        trigger_card = card.side_as_card("bottom") if _can_use_twinpact_shield_trigger(card) else card
-        if not trigger_card.shield_trigger or trigger_card.trigger_effect is None:
-            if _has_g_strike(card):
-                info.update(self._resolve_g_strike(card, defender_player, attacker_player))
-            defender.hand.append(card)
-            return info
-
-        effect = trigger_card.trigger_effect
-        info["trigger_activated"] = True
-        info["trigger_effect"] = effect
-        state.last_trigger_activated = True
-        state.last_trigger_effect = effect
-        state.last_trigger_player = defender_player
-
-        if effect == "DRAW_1":
-            defender.graveyard.append(card)
-            self._draw_card(defender)
-            return info
-
-        if effect == "DESTROY_ATTACKER":
-            defender.graveyard.append(card)
-            attacker_zone = state.players[attacker_player].battle_zone
-            if attacker_index is not None and attacker_index < len(attacker_zone):
-                destroyed = attacker_zone.pop(attacker_index)
-                state.players[attacker_player].graveyard.extend(_creature_zone_cards(destroyed))
-                info["attacker_destroyed_by_trigger"] = True
-            return info
-
-        if effect == "SUMMON_SELF" and trigger_card.card_type == "CREATURE":
-            defender.battle_zone.append(Creature(card=trigger_card, summoned_turn=state.turn_number, original_card=card if card.is_twinpact else None))
-            return info
-
-        if effect == "GAIN_SHIELD":
-            defender.graveyard.append(card)
-            if defender.deck:
-                defender.shields.append(defender.deck.pop())
-            return info
-
-        defender.hand.append(card)
-        info["trigger_activated"] = False
-        info["trigger_effect"] = None
-        self._clear_last_trigger()
-        return info
-
     def _resolve_g_strike(self, card: Card, defender_player: int, attacker_player: int) -> dict[str, Any]:
         info: dict[str, Any] = {
             "g_strike_activated": True,
@@ -790,6 +805,45 @@ class Env:
             for index, creature in enumerate(player.battle_zone)
             if creature.card.blocker and not creature.tapped
         ]
+
+    def _creature_by_index(self, player_id: int, creature_index: int | None) -> Creature | None:
+        if creature_index is None:
+            return None
+        battle_zone = self._require_state().players[player_id].battle_zone
+        if creature_index < 0 or creature_index >= len(battle_zone):
+            return None
+        return battle_zone[creature_index]
+
+    def _creature_index(self, player_id: int, creature_instance: int | Creature | None) -> int | None:
+        if creature_instance is None:
+            return None
+        if isinstance(creature_instance, int):
+            return creature_instance
+        for index, creature in enumerate(self._require_state().players[player_id].battle_zone):
+            if creature is creature_instance:
+                return index
+        return None
+
+    def _attacker_breaker_count(self, attacker: Creature | None) -> int:
+        if attacker is None:
+            return 1
+        return max(1, int(attacker.card.breaker_count))
+
+    def _consume_cost_reductions(self, player: PlayerState, effects: list[CostReductionEffect]) -> None:
+        effect_ids = {id(effect) for effect in effects}
+        for effect in effects:
+            effect.used = True
+        player.pending_cost_reductions = [
+            effect for effect in player.pending_cost_reductions if id(effect) not in effect_ids
+        ]
+
+    def _expire_cost_reductions(self, player: PlayerState) -> list[CostReductionEffect]:
+        expired = [effect for effect in player.pending_cost_reductions if not effect.used]
+        if expired:
+            player.pending_cost_reductions = [
+                effect for effect in player.pending_cost_reductions if effect.used
+            ]
+        return expired
 
     def _raise_if_pending(self, action: Action) -> None:
         if self._require_state().pending_attack is not None:
@@ -880,6 +934,21 @@ class Env:
             "civilization_counts": civilization_counts(player.mana),
             "untapped_civilization_counts": civilization_counts(player.mana, untapped_only=True),
             "multicolor_mana_count": multicolor_mana_count(player.mana),
+            "pending_cost_reductions": [
+                {
+                    "source_card_name": effect.source_card_name,
+                    "applies_to": effect.applies_to,
+                    "amount": effect.amount,
+                    "expires": effect.expires,
+                    "used": effect.used,
+                }
+                for effect in player.pending_cost_reductions
+            ],
+            "next_creature_cost_reduction": sum(
+                effect.amount
+                for effect in player.pending_cost_reductions
+                if not effect.used and effect.applies_to == "CREATURE"
+            ),
             "playable_hand_count": playable_hand_counts(player)["playable"] if reveal_hand else None,
             "unplayable_due_to_civilization_count": (
                 playable_hand_counts(player)["civilization_shortfall"] if reveal_hand else None
@@ -954,34 +1023,3 @@ def _creature_zone_card(creature: Creature) -> Card:
 
 def _creature_zone_cards(creature: Creature) -> list[Card]:
     return [creature.original_card or creature.card] + list(creature.evolution_sources)
-
-
-def _can_use_twinpact_shield_trigger(card: Card) -> bool:
-    return (
-        card.is_twinpact
-        and card.bottom_side is not None
-        and card.bottom_side.card_type == "SPELL"
-        and card.bottom_side.shield_trigger
-        and card.bottom_side.trigger_effect is not None
-    )
-
-
-def _has_g_strike(card: Card) -> bool:
-    return any(handler.tag == "G_STRIKE" for handler in get_default_ability_registry().get_handlers_for_card(card))
-
-
-def _creature_can_attack_now(creature: Creature, turn_number: int) -> bool:
-    if creature.tapped or creature.cannot_attack_this_turn:
-        return False
-    handler_allows_attack = False
-    for handler in get_default_ability_registry().get_handlers_for_card(creature):
-        modified = handler.modifies_attack_permission(creature, None, 0)
-        if modified is False:
-            return False
-        if modified is True:
-            handler_allows_attack = True
-    if handler_allows_attack:
-        return True
-    tags = set(creature.card.ability_tags)
-    has_attack_ready_evolution = bool({"INVASION", "ATTACKING_CREATURE_EVOLUTION"} & tags)
-    return has_attack_ready_evolution or creature.summoned_turn < turn_number

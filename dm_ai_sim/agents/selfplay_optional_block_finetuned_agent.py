@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 from sb3_contrib import MaskablePPO
@@ -11,6 +11,8 @@ if TYPE_CHECKING:
 
 
 class SelfPlayOptionalBlockFineTunedAgent:
+    _reported_prediction_errors: ClassVar[set[str]] = set()
+
     def __init__(
         self,
         model_path: str | Path = Path("saved_models") / "selfplay_optional_block_finetuned.zip",
@@ -41,7 +43,10 @@ class SelfPlayOptionalBlockFineTunedAgent:
                 action_masks=env.action_masks(),
             )
         except Exception as exc:
-            print(f"SelfPlayOptionalBlockFineTunedAgent prediction failed, falling back: {exc}")
+            error_key = str(exc)
+            if error_key not in self._reported_prediction_errors:
+                self._reported_prediction_errors.add(error_key)
+                print(f"SelfPlayOptionalBlockFineTunedAgent prediction failed, falling back: {exc}")
             return legal_action_ids[0]
         action_id = int(np.asarray(action).item())
         return action_id if action_id in legal_action_ids else legal_action_ids[0]

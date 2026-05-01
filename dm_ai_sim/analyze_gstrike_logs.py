@@ -55,6 +55,7 @@ def analyze_game(game_index: int) -> dict[str, Any]:
 
 def _event(env: Env, observation: dict[str, Any], action: Action, info: dict[str, Any]) -> dict[str, Any]:
     target_index = info.get("g_strike_target_index")
+    first_break = _first_break_result(info)
     removed = False
     if target_index is not None and env.state is not None and env.state.current_player == observation["current_player"]:
         removed = all(
@@ -71,6 +72,10 @@ def _event(env: Env, observation: dict[str, Any], action: Action, info: dict[str
         "g_strike_target_name": info.get("g_strike_target_name"),
         "target_was_attack_capable": bool(info.get("g_strike_prevented_attack")),
         "target_attack_removed_from_legal_actions": removed,
+        "batch_id": first_break.get("batch_id"),
+        "break_index": first_break.get("break_index"),
+        "simultaneous_count": first_break.get("simultaneous_count", 1),
+        "trigger_resolution_order": first_break.get("trigger_resolution_order"),
         "card_added_to_hand": bool(info.get("g_strike_activated")) and _any_hand_has(env, info.get("g_strike_card_name")),
         "winner": info.get("winner"),
     }
@@ -80,6 +85,15 @@ def _any_hand_has(env: Env, card_name: str | None) -> bool:
     if card_name is None or env.state is None:
         return False
     return any(card.name == card_name for player in env.state.players for card in player.hand)
+
+
+def _first_break_result(info: dict[str, Any]) -> dict[str, Any]:
+    results = info.get("shield_break_results")
+    if isinstance(results, list) and results:
+        first = results[0]
+        if isinstance(first, dict):
+            return first
+    return {}
 
 
 if __name__ == "__main__":

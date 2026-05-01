@@ -89,6 +89,7 @@ def _event(
 ) -> dict[str, Any]:
     attacker_player = observation["current_player"]
     defender_player = 1 - attacker_player
+    first_break = _first_break_result(info)
     return {
         "turn": observation["turn_number"],
         "attacker_player": attacker_player,
@@ -99,6 +100,10 @@ def _event(
         "trigger_activated": bool(info.get("trigger_activated", False)),
         "trigger_effect": info.get("trigger_effect"),
         "attacker_destroyed_by_trigger": bool(info.get("attacker_destroyed_by_trigger", False)),
+        "batch_id": first_break.get("batch_id"),
+        "break_index": first_break.get("break_index"),
+        "simultaneous_count": first_break.get("simultaneous_count", 1),
+        "trigger_resolution_order": first_break.get("trigger_resolution_order"),
         "shield_count_before": shield_counts_before[defender_player],
         "shield_count_after": shield_counts_after[defender_player],
         "winner": info.get("winner"),
@@ -156,6 +161,15 @@ def _action_dict(action: Action) -> dict[str, Any]:
         if value is not None:
             values[field] = value
     return values
+
+
+def _first_break_result(info: dict[str, Any]) -> dict[str, Any]:
+    results = info.get("shield_break_results")
+    if isinstance(results, list) and results:
+        first = results[0]
+        if isinstance(first, dict):
+            return first
+    return {}
 
 
 if __name__ == "__main__":

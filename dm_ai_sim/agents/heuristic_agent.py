@@ -31,6 +31,10 @@ class HeuristicAgent:
             candidates = [action for action in legal_actions if action.type == action_type]
             if not candidates:
                 continue
+            if action_type in {ActionType.ATTACK_CREATURE, ActionType.ATTACK_PLAYER, ActionType.ATTACK_SHIELD} and observation is not None:
+                candidates = self._attackable_observation_actions(candidates, observation)
+                if not candidates:
+                    continue
             if action_type == ActionType.ATTACK_CREATURE and observation is not None:
                 favorable = self._favorable_creature_attacks(candidates, observation)
                 if favorable:
@@ -46,6 +50,8 @@ class HeuristicAgent:
             if action_type in {ActionType.ATTACK_PLAYER, ActionType.ATTACK_SHIELD} and observation is not None:
                 if self._has_untapped_opponent_blocker(observation):
                     continue
+            if action_type == ActionType.ATTACK_SHIELD and observation is not None:
+                return self._best_shield_attack(candidates, observation)
             if action_type == ActionType.CAST_SPELL and observation is not None:
                 spell = self._best_spell(candidates, observation)
                 if spell is not None:
@@ -99,11 +105,39 @@ class HeuristicAgent:
             reverse=True,
         )
 
+    def _best_shield_attack(self, actions: list[Action], observation: dict) -> Action:
+        own_creatures = observation["self"]["battle_zone"]
+        opponent_shields = int(observation["opponent"].get("shield_count", 0))
+
+        def score(action: Action) -> tuple[int, int, int]:
+            card = own_creatures[action.attacker_index]["card"]
+            breaker_count = max(1, int(card.get("breaker_count", 1)))
+            power = int(card.get("power", 0))
+            return min(breaker_count, opponent_shields), power, -(action.attacker_index or 0)
+
+        return max(actions, key=score)
+
     def _has_untapped_opponent_blocker(self, observation: dict) -> bool:
         return any(
             creature["card"]["blocker"] and not creature["tapped"]
             for creature in observation["opponent"]["battle_zone"]
         )
+
+    def _attackable_observation_actions(self, actions: list[Action], observation: dict) -> list[Action]:
+        own_creatures = observation["self"]["battle_zone"]
+        turn_number = observation["turn_number"]
+        filtered: list[Action] = []
+        for action in actions:
+            if action.attacker_index is None or action.attacker_index >= len(own_creatures):
+                continue
+            creature = own_creatures[action.attacker_index]
+            tags = set(creature["card"].get("ability_tags", ()))
+            attack_ready = bool({"SPEED_ATTACKER", "INVASION", "ATTACKING_CREATURE_EVOLUTION"} & tags)
+            if creature["tapped"] or creature["cannot_attack_this_turn"]:
+                continue
+            if attack_ready or creature["summoned_turn"] < turn_number:
+                filtered.append(action)
+        return filtered
 
     def _highest_cost_summon(self, actions: list[Action], observation: dict) -> Action:
         hand = observation["self"]["hand"]
@@ -140,6 +174,10 @@ class HeuristicAgent:
         shield_count = observation["self"]["shield_count"]
         hand_count = observation["self"]["hand_count"]
 
+        reduction_spell = self._best_cost_reduction_spell(actions, observation)
+        if reduction_spell is not None:
+            return reduction_spell
+
         destroy_actions = [
             action for action in actions
             if _action_spell_effect(hand[action.hand_index], action) == "DESTROY_TARGET"
@@ -168,6 +206,44 @@ class HeuristicAgent:
                 effect = _action_spell_effect(hand[action.hand_index], action)
                 if effect == desired:
                     return action
+        return None
+
+    def _best_cost_reduction_spell(self, actions: list[Action], observation: dict) -> Action | None:
+        own = observation["self"]
+        if own.get("next_creature_cost_reduction", 0):
+            return None
+        hand = own["hand"]
+        reduction_actions = [
+            action for action in actions
+            if _action_spell_effect(hand[action.hand_index], action) == "NEXT_CREATURE_COST_REDUCTION"
+        ]
+        if not reduction_actions:
+            return None
+
+        untapped_mana = [mana for mana in own["mana"] if not mana["tapped"]]
+        remaining_after_spell = max(0, len(untapped_mana) - 1)
+        mana_civilizations = [
+            set(mana.get("civilizations", [mana["card"].get("civilization", "COLORLESS")]))
+            for mana in untapped_mana
+        ]
+
+        for card_index, card in enumerate(hand):
+            if any(action.hand_index == card_index for action in reduction_actions):
+                continue
+            creature = _creature_face(card)
+            if creature is None:
+                continue
+            original_cost = int(creature.get("cost", 0))
+            effective_cost = max(0, original_cost - 3)
+            civilizations = [
+                civilization
+                for civilization in creature.get("civilizations", [creature.get("civilization", "COLORLESS")])
+                if civilization != "COLORLESS"
+            ]
+            can_pay_reduced = _simple_can_pay(remaining_after_spell, mana_civilizations, civilizations, effective_cost)
+            can_pay_original = _simple_can_pay(remaining_after_spell, mana_civilizations, civilizations, original_cost)
+            if can_pay_reduced and (not can_pay_original or int(creature.get("power", 0)) >= 4000):
+                return reduction_actions[0]
         return None
 
     def _block_or_decline(self, legal_actions: list[Action], observation: dict | None) -> Action:
@@ -266,5 +342,30 @@ def _action_card_cost(card: dict, action: Action) -> int:
 def _action_spell_effect(card: dict, action: Action) -> str | None:
     if action.side == "bottom" and card.get("bottom_side"):
         side = card["bottom_side"]
-        return side.get("spell_effect") or side.get("trigger_effect")
-    return card.get("spell_effect") or card.get("trigger_effect")
+        effect = side.get("spell_effect") or side.get("trigger_effect")
+        if effect is None and "NEXT_CREATURE_COST_REDUCTION" in side.get("ability_tags", ()):
+            return "NEXT_CREATURE_COST_REDUCTION"
+        return effect
+    effect = card.get("spell_effect") or card.get("trigger_effect")
+    if effect is None and "NEXT_CREATURE_COST_REDUCTION" in card.get("ability_tags", ()):
+        return "NEXT_CREATURE_COST_REDUCTION"
+    return effect
+
+
+def _creature_face(card: dict) -> dict | None:
+    if card.get("card_type") == "CREATURE":
+        return card
+    top_side = card.get("top_side")
+    if top_side and top_side.get("card_type") == "CREATURE":
+        return top_side
+    return None
+
+
+def _simple_can_pay(untapped_count: int, mana_civilizations: list[set[str]], required: list[str], effective_cost: int) -> bool:
+    mana_needed = max(effective_cost, len(required))
+    if untapped_count < mana_needed:
+        return False
+    for civilization in required:
+        if not any(civilization in mana_values for mana_values in mana_civilizations):
+            return False
+    return True

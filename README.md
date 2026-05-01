@@ -788,7 +788,7 @@ python -m dm_ai_sim.analyze_revolution_change_logs
 
 Reference Deck 02の第5段階として、INVASION/進化の最小処理を追加しています。実ルールの攻撃時宣言中の置換ではなく、初期版ではATTACKフェーズ中に使える特殊Actionとして扱います。手札の侵略持ちクリーチャーを、攻撃可能な自軍クリーチャーの上に重ね、元クリーチャーは `evolution_sources` に保持します。コスト/文明支払いは不要で、1ターン1回の簡易制限を置いています。
 
-進化クリーチャーが破壊される場合、現時点では上カードと進化元をすべて墓地へ送ります。手札へ戻る処理でも、簡易仕様として上カードと進化元をまとめて戻します。これは実ルールの細部再現ではなく、ゾーン枚数とAI評価を破綻させないための暫定仕様です。`DOUBLE_BREAKER` は `breaker_count=2` のデータとして保持しますが、複数シールドブレイクの順次解決はまだ未実装です。
+進化クリーチャーが破壊される場合、現時点では上カードと進化元をすべて墓地へ送ります。手札へ戻る処理でも、簡易仕様として上カードと進化元をまとめて戻します。これは実ルールの細部再現ではなく、ゾーン枚数とAI評価を破綻させないための暫定仕様です。`DOUBLE_BREAKER` は `breaker_count=2` として保持され、通常のシールド攻撃では2枚ブレイクします。
 
 action ID空間は512から640へ拡張しました。`512-591` は `INVASION(hand_index 0-9, attacker_index 0-7)`、`592-639` は将来拡張用予約です。旧512幅モデルはaction space不一致になるため、必要に応じてスキップまたは再学習してください。
 
@@ -809,7 +809,31 @@ Reference Deck 02の第6段階として、AbilityHandler/Eventの最小土台を
 - G・ストライクの対象選択と適用はhandler経由へ部分移行
 - 既存のハチ公、TWINPACT、REVOLUTION_CHANGE、INVASIONは今回は無理に移行していません
 
-新しいカード能力を追加する時は、原則としてAbilityHandlerを作り、必要なhookだけをCore Rules Engineから呼び出します。今後の `DOUBLE_BREAKER` 実処理、`COST_REDUCTION`、`LOCK`、`META_EFFECT` はhandler方式で追加する予定です。設計方針は [ARCHITECTURE_RULE_ENGINE.md](ARCHITECTURE_RULE_ENGINE.md)、移行状況は [ABILITY_HANDLER_MIGRATION.md](ABILITY_HANDLER_MIGRATION.md) にまとめています。
+新しいカード能力を追加する時は、原則としてAbilityHandlerを作り、必要なhookだけをCore Rules Engineから呼び出します。今後の `LOCK`、`META_EFFECT` はhandler方式で追加する予定です。`DOUBLE_BREAKER` は攻撃解決の基本ルール寄りの `breaker_count` として先に接続済みです。`COST_REDUCTION` は通常SUMMONの支払いhookへ最小接続しています。設計方針は [ARCHITECTURE_RULE_ENGINE.md](ARCHITECTURE_RULE_ENGINE.md)、移行状況は [ABILITY_HANDLER_MIGRATION.md](ABILITY_HANDLER_MIGRATION.md) にまとめています。
+
+Reference Deck 02の第7段階として、シールドブレイク処理を `dm_ai_sim.shield_breaks` へ共通化しています。通常ブレイク、S・トリガー、G・ストライク、ツインパクト下側S・トリガー、手札/墓地/バトルゾーンへの移動を同じ経路に寄せました。既存ログ互換の `info` 項目は維持しつつ、将来の複数ブレイク用に `ShieldBreakResult` と `shield_break_results` を用意しています。
+
+Reference Deck 02の第8段階として、`DOUBLE_BREAKER` の実処理を追加しています。通常の `ATTACK_SHIELD` は攻撃クリーチャーの `breaker_count` を参照し、W・ブレイカーなら最大2枚のシールドを同時に選んでから自動順で解決します。`DESTROY_ATTACKER` で攻撃クリーチャーが破壊されても、同時に選ばれたシールドはブレイク済みとして最後まで処理します。複数ブレイク方針は [MULTI_BREAK_RULES.md](MULTI_BREAK_RULES.md) に整理しています。
+
+DOUBLE_BREAKER挙動の確認:
+
+```powershell
+python -m dm_ai_sim.evaluate_double_breaker
+python -m dm_ai_sim.analyze_double_breaker_logs
+```
+
+`data/decks/double_breaker_runtime_test_deck.json` はW・ブレイカー処理テスト用であり、大会評価用ではありません。
+
+Reference Deck 02の第9段階として、《フェアリー・ギフト》向けに `COST_REDUCTION` の最小処理を追加しています。唱えると使用者に「次に通常召喚するCREATUREのコストを3軽減する」一時効果を作り、次のSUMMONで使用するかターン終了時に失効します。文明要求は軽減されず、支払う総マナ数だけが下がります。ツインパクト上側CREATUREのSUMMONには適用されますが、下側SPELLのCAST、REVOLUTION_CHANGE、INVASION、S・トリガー、ハチ公のガチンコ・ジャッジ同名展開には適用しません。
+
+COST_REDUCTION挙動の確認:
+
+```powershell
+python -m dm_ai_sim.evaluate_cost_reduction
+python -m dm_ai_sim.analyze_cost_reduction_logs
+```
+
+`data/decks/cost_reduction_runtime_test_deck.json` はCOST_REDUCTION処理テスト用であり、大会評価用ではありません。Reference Deck 02は、LOCK / META_EFFECT / ALTERNATE_WIN_CONDITION と一部カード個別能力が残るため、まだ全体としてはBlockedです。
 
 ## 参考にした研究・設計観点
 

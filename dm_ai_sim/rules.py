@@ -1,32 +1,20 @@
 from __future__ import annotations
 
 from dm_ai_sim.actions import Action, ActionType
-from dm_ai_sim.ability_handlers.registry import get_default_ability_registry
-from dm_ai_sim.mana import can_pay_for_card
+from dm_ai_sim.attack_permissions import can_creature_attack_in_state, get_attackable_creatures_in_state
+from dm_ai_sim.mana import can_pay_for_card, can_pay_for_summon
 from dm_ai_sim.state import GameState, Phase, PlayerState
 
 
 def can_attack(creature_index: int, state: GameState) -> bool:
-    creature = state.players[state.current_player].battle_zone[creature_index]
-    if creature.tapped or creature.cannot_attack_this_turn:
-        return False
-    registry = get_default_ability_registry()
-    handler_allows_attack = False
-    for handler in registry.get_handlers_for_card(creature):
-        modified = handler.modifies_attack_permission(creature, state, state.current_player)
-        if modified is False:
-            return False
-        if modified is True:
-            handler_allows_attack = True
-    if handler_allows_attack:
-        return True
-    tags = set(creature.card.ability_tags)
-    has_attack_ready_evolution = bool({"INVASION", "ATTACKING_CREATURE_EVOLUTION"} & tags)
-    return has_attack_ready_evolution or creature.summoned_turn < state.turn_number
+    return can_creature_attack_in_state(state, state.current_player, creature_index)
 
 
 def spell_effect(card) -> str | None:
-    return card.spell_effect or card.trigger_effect
+    effect = card.spell_effect or card.trigger_effect
+    if effect is None and "NEXT_CREATURE_COST_REDUCTION" in card.ability_tags:
+        return "NEXT_CREATURE_COST_REDUCTION"
+    return effect
 
 
 def legal_actions(state: GameState) -> list[Action]:
@@ -57,14 +45,14 @@ def legal_actions(state: GameState) -> list[Action]:
             if card.is_twinpact:
                 if card.top_side is not None and card.top_side.card_type == "CREATURE":
                     top_card = card.side_as_card("top")
-                    if can_pay_for_card(player, top_card):
+                    if can_pay_for_summon(player, top_card):
                         actions.append(Action(ActionType.SUMMON, card_index=index, side="top"))
                 if card.bottom_side is not None and card.bottom_side.card_type == "SPELL":
                     bottom_card = card.side_as_card("bottom")
                     if can_pay_for_card(player, bottom_card):
                         _append_spell_actions(actions, index, bottom_card, opponent, side="bottom")
                 continue
-            if card.card_type == "CREATURE" and can_pay_for_card(player, card):
+            if card.card_type == "CREATURE" and can_pay_for_summon(player, card):
                 actions.append(Action(ActionType.SUMMON, card_index=index))
                 continue
             if card.card_type != "SPELL" or not can_pay_for_card(player, card):
@@ -74,14 +62,15 @@ def legal_actions(state: GameState) -> list[Action]:
         return actions
 
     if state.phase == Phase.ATTACK:
+        attackable_indices = get_attackable_creatures_in_state(state, state.current_player)
+        attackable_set = set(attackable_indices)
         if not state.invaded_this_turn:
             for hand_index, card in enumerate(player.hand):
                 if card.card_type != "CREATURE" or "INVASION" not in card.ability_tags:
                     continue
                 actions.extend(
                     Action(ActionType.INVASION, hand_index=hand_index, attacker_index=attacker_index)
-                    for attacker_index in range(len(player.battle_zone))
-                    if can_attack(attacker_index, state)
+                    for attacker_index in attackable_indices
                 )
         if not state.revolution_changed_this_turn:
             for hand_index, card in enumerate(player.hand):
@@ -89,11 +78,10 @@ def legal_actions(state: GameState) -> list[Action]:
                     continue
                 actions.extend(
                     Action(ActionType.REVOLUTION_CHANGE, hand_index=hand_index, attacker_index=attacker_index)
-                    for attacker_index in range(len(player.battle_zone))
-                    if can_attack(attacker_index, state)
+                    for attacker_index in attackable_indices
                 )
         for index in range(len(player.battle_zone)):
-            if not can_attack(index, state):
+            if index not in attackable_set:
                 continue
             actions.extend(
                 Action(ActionType.ATTACK_CREATURE, attacker_index=index, target_index=target_index)
@@ -116,5 +104,5 @@ def _append_spell_actions(actions: list[Action], index: int, card, opponent: Pla
             Action(ActionType.CAST_SPELL, hand_index=index, target_index=target_index, side=side)
             for target_index in range(len(opponent.battle_zone))
         )
-    elif effect in {"DRAW_1", "GAIN_SHIELD", "MANA_BOOST"}:
+    elif effect in {"DRAW_1", "GAIN_SHIELD", "MANA_BOOST", "NEXT_CREATURE_COST_REDUCTION"}:
         actions.append(Action(ActionType.CAST_SPELL, hand_index=index, side=side))

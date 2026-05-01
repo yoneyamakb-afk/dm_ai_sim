@@ -151,7 +151,7 @@ class CardDatabase:
             trigger_effect=card.trigger_effect,  # type: ignore[arg-type]
             spell_effect=card.spell_effect,
             ability_tags=card.ability_tags,
-            breaker_count=2 if "DOUBLE_BREAKER" in card.ability_tags else 1,
+            breaker_count=3 if "TRIPLE_BREAKER" in card.ability_tags else 2 if "DOUBLE_BREAKER" in card.ability_tags else 1,
         )
 
 
@@ -261,7 +261,7 @@ def _twinpact_runtime_card(card: CardData, strict: bool) -> Card:
         trigger_effect=card.trigger_effect,
         spell_effect=card.spell_effect,
         ability_tags=card.ability_tags,
-        breaker_count=2 if "DOUBLE_BREAKER" in card.ability_tags else 1,
+        breaker_count=3 if "TRIPLE_BREAKER" in card.ability_tags else 2 if "DOUBLE_BREAKER" in card.ability_tags else 1,
         is_twinpact=True,
         top_side=_runtime_side(card.top_side),
         bottom_side=_runtime_side(card.bottom_side),

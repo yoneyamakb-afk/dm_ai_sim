@@ -64,6 +64,11 @@ class Card:
         object.__setattr__(self, "ability_tags", tuple(dict.fromkeys(str(tag) for tag in self.ability_tags)))
         if self.breaker_count < 1:
             object.__setattr__(self, "breaker_count", 1)
+        tags = set(self.ability_tags)
+        if self.breaker_count == 1 and "TRIPLE_BREAKER" in tags:
+            object.__setattr__(self, "breaker_count", 3)
+        elif self.breaker_count == 1 and "DOUBLE_BREAKER" in tags:
+            object.__setattr__(self, "breaker_count", 2)
 
     def side_as_card(self, side: str) -> "Card":
         card_side = self.top_side if side == "top" else self.bottom_side if side == "bottom" else None
@@ -83,7 +88,7 @@ class Card:
             trigger_effect=card_side.trigger_effect,
             spell_effect=card_side.spell_effect,
             ability_tags=card_side.ability_tags,
-            breaker_count=2 if "DOUBLE_BREAKER" in card_side.ability_tags else 1,
+            breaker_count=3 if "TRIPLE_BREAKER" in card_side.ability_tags else 2 if "DOUBLE_BREAKER" in card_side.ability_tags else 1,
         )
 
 

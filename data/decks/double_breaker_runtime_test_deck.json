@@ -1,0 +1,11 @@
+{
+  "name": "Double Breaker Runtime Test Deck",
+  "format": "runtime-test",
+  "purpose": "DOUBLE_BREAKER behavior verification only; not a tournament or competitive evaluation deck.",
+  "cards": [
+    {"card_id": "DM_REF_015", "count": 8},
+    {"card_id": "DM_REF_016", "count": 8},
+    {"card_id": "DM_REF_014", "count": 16},
+    {"card_id": "DM_REF_020", "count": 8}
+  ]
+}

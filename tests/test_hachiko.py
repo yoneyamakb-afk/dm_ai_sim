@@ -130,7 +130,7 @@ def test_diagnose_reference_deck_02_runtime_convertible_count_increased(capsys) 
 
     diagnose_reference_deck_02_main()
     output = capsys.readouterr().out
-    assert "runtime_convertible_count: 21" in output
+    assert "runtime_convertible_count: 22" in output
 
 
 def _prepared_hachiko_env(

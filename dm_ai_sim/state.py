@@ -29,6 +29,15 @@ class Creature:
 
 
 @dataclass(slots=True)
+class CostReductionEffect:
+    source_card_name: str
+    applies_to: str = "CREATURE"
+    amount: int = 0
+    expires: str = "NEXT_CREATURE_SUMMON"
+    used: bool = False
+
+
+@dataclass(slots=True)
 class PlayerState:
     deck: list[Card]
     hand: list[Card] = field(default_factory=list)
@@ -37,6 +46,7 @@ class PlayerState:
     battle_zone: list[Creature] = field(default_factory=list)
     graveyard: list[Card] = field(default_factory=list)
     charged_mana_this_turn: bool = False
+    pending_cost_reductions: list[CostReductionEffect] = field(default_factory=list)
 
 
 @dataclass(slots=True)

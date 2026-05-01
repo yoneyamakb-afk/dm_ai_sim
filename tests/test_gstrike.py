@@ -34,13 +34,16 @@ def test_gstrike_target_cannot_attack_until_turn_changes() -> None:
     env = _gstrike_env(prin)
     state = env.state
     assert state is not None
+    state.players[0].battle_zone.append(
+        Creature(card=Card(id=2, name="Second Speed", cost=2, power=1000, civilizations=("FIRE",), ability_tags=("SPEED_ATTACKER",)), tapped=False, summoned_turn=state.turn_number)
+    )
 
     env.step(Action(ActionType.ATTACK_SHIELD, attacker_index=0))
 
-    assert state.players[0].battle_zone[0].cannot_attack_this_turn is True
-    assert all(action.attacker_index != 0 for action in env.legal_actions() if action.type in {ActionType.ATTACK_SHIELD, ActionType.ATTACK_PLAYER})
+    assert state.players[0].battle_zone[1].cannot_attack_this_turn is True
+    assert all(action.attacker_index != 1 for action in env.legal_actions() if action.type in {ActionType.ATTACK_SHIELD, ActionType.ATTACK_PLAYER})
     env.step(Action(ActionType.END_ATTACK))
-    assert state.players[0].battle_zone[0].cannot_attack_this_turn is False
+    assert state.players[0].battle_zone[1].cannot_attack_this_turn is False
 
 
 def test_gstrike_target_selection_prefers_attack_capable_speed_attacker() -> None:
@@ -51,9 +54,10 @@ def test_gstrike_target_selection_prefers_attack_capable_speed_attacker() -> Non
     state.players[0].battle_zone = [
         Creature(card=Card(id=11, name="Old Big", cost=5, power=9000, civilizations=("FIRE",)), tapped=False, summoned_turn=state.turn_number),
         Creature(card=Card(id=12, name="Speed Small", cost=2, power=1000, civilizations=("FIRE",), ability_tags=("SPEED_ATTACKER",)), tapped=False, summoned_turn=state.turn_number),
+        Creature(card=Card(id=13, name="Old Attacker", cost=2, power=2000, civilizations=("FIRE",)), tapped=False, summoned_turn=state.turn_number - 1),
     ]
 
-    _obs, _reward, _done, info = env.step(Action(ActionType.ATTACK_SHIELD, attacker_index=1))
+    _obs, _reward, _done, info = env.step(Action(ActionType.ATTACK_SHIELD, attacker_index=2))
 
     assert info["g_strike_target_name"] == "Speed Small"
 
@@ -93,7 +97,7 @@ def test_diagnose_gstrike_is_implemented(capsys) -> None:
     output = capsys.readouterr().out
 
     assert "G_STRIKE" not in output.split("unsupported_tag_summary:", 1)[1].split("unsupported_counts_by_tag:", 1)[0]
-    assert "runtime_convertible_count: 21" in output
+    assert "runtime_convertible_count: 22" in output
 
 
 def _gstrike_env(shield_card: Card) -> Env:

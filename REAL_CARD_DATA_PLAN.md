@@ -161,10 +161,10 @@ Reference Deck 02を優先対象にします。まずハチ公デッキに含ま
 - 初期版ではコスト支払い・文明支払いは不要です。
 - 実ルールの「火のコマンドが攻撃する時」条件はカードデータの `invasion_condition` に残し、ランタイム条件は今後詳細化します。
 - 進化クリーチャーが破壊/バウンスされる場合、現時点では上カードと進化元をまとめて移動します。
-- `DOUBLE_BREAKER` は `breaker_count=2` のデータとして保持しますが、複数ブレイクの順次処理は未実装です。
+- `DOUBLE_BREAKER` は `breaker_count=2` として保持され、通常のシールド攻撃で2枚ブレイクします。
 - action spaceは640に拡張し、512-591を `INVASION` 用に使います。
 
-次候補は `COST_REDUCTION` または `DOUBLE_BREAKER` の実処理です。
+次候補は `COST_REDUCTION`、`LOCK`、`META_EFFECT` のいずれかです。
 
 ## Ability Handler Direction
 
@@ -175,7 +175,29 @@ Reference Deck 02を優先対象にします。まずハチ公デッキに含ま
 - 対象デッキ優先でhandlerを増やし、全カード能力の一括再現は狙いません。
 - `SPEED_ATTACKER` は攻撃可能判定handlerへ移行済みです。
 - `G_STRIKE` は対象選択と適用をhandlerへ部分移行済みです。
-- `DOUBLE_BREAKER`、`COST_REDUCTION`、`LOCK`、`META_EFFECT` は原則handlerとして追加します。
+- `DOUBLE_BREAKER` は攻撃解決の `breaker_count` として接続済みです。`COST_REDUCTION` は《フェアリー・ギフト》向けの通常SUMMON軽減として最小実装済みです。`LOCK`、`META_EFFECT` は原則handlerとして追加します。
 - 将来的に `RuleSpec` JSONやDSLへ移行する場合も、まずはAbilityHandlerの入力データを外部化する形から進めます。
 
 現時点ではCLIPSや本格DSLは導入しません。まずPython内の小さなhandler APIで、必要なイベント、hook、テスト境界を固めます。
+
+## Reference Deck 02 Stage 8 Double Breaker Work
+
+4-Kで《轟く革命 レッドギラゾーン》と《熱き侵略 レッドゾーンZ》向けに `DOUBLE_BREAKER` の実ブレイク処理を追加しました。
+
+- `Card` は `DOUBLE_BREAKER` タグから `breaker_count=2` を推論します。
+- 通常の `ATTACK_SHIELD` は攻撃クリーチャーの `breaker_count` を参照します。
+- 複数ブレイクでは対象シールドを先にまとめて取り除き、その後S・トリガー/G・ストライク/通常手札移動を自動順で解決します。
+- `data/decks/double_breaker_runtime_test_deck.json`、`evaluate_double_breaker`、`analyze_double_breaker_logs` を追加しました。
+- `LOCK`、`META_EFFECT` は今回未実装です。
+
+## Reference Deck 02 Stage 9 Cost Reduction Work
+
+4-Lで《フェアリー・ギフト》向けに `COST_REDUCTION` の最小実装を追加しました。
+
+- `CardData` 上で《フェアリー・ギフト》は `COST_REDUCTION` / `NEXT_CREATURE_COST_REDUCTION` を実装済みとして扱います。
+- 唱えた後、使用者に次CREATURE通常召喚のコストを3下げる一時効果を作ります。
+- 軽減は通常の `SUMMON` とツインパクト上側CREATURE召喚にだけ適用します。
+- SPELL、REVOLUTION_CHANGE、INVASION、S・トリガー、ハチ公のガチンコ展開には適用しません。
+- 未使用の軽減はターン終了時に失効します。
+- `data/decks/cost_reduction_runtime_test_deck.json`、`evaluate_cost_reduction`、`analyze_cost_reduction_logs` を追加しました。
+- 次候補は `LOCK`、`META_EFFECT`、`ALTERNATE_WIN_CONDITION` です。
